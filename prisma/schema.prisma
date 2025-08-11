@@ -1,0 +1,203 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Child user (the learner)
+model Child {
+  id              String   @id @default(cuid())
+  name            String
+  age             Int
+  avatarUrl       String?
+  totalPoints     Int      @default(0)
+  currentStreak   Int      @default(0)
+  longestStreak   Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relationships
+  parentId        String
+  parent          Parent   @relation(fields: [parentId], references: [id], onDelete: Cascade)
+  
+  sessions        LearningSession[]
+  progress        Progress[]
+  rewards         Reward[]
+  avatarItems     AvatarItem[]
+  
+  @@map("children")
+}
+
+// Parent user
+model Parent {
+  id            String   @id @default(cuid())
+  name          String
+  email         String   @unique
+  password      String   // In production, this should be hashed
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relationships
+  children      Child[]
+  settings      Settings[]
+  
+  @@map("parents")
+}
+
+// Learning session tracking
+model LearningSession {
+  id              String   @id @default(cuid())
+  childId         String
+  subject         Subject  // MATH or ENGLISH
+  topic           String   // e.g., "multiplication", "grammar"
+  duration        Int      // in minutes
+  questionsAsked  Int      @default(0)
+  questionsCorrect Int     @default(0)
+  pointsEarned    Int      @default(0)
+  completedAt     DateTime @default(now())
+  
+  // Relationships
+  child           Child    @relation(fields: [childId], references: [id], onDelete: Cascade)
+  
+  @@map("learning_sessions")
+}
+
+// Subject enum
+enum Subject {
+  MATH
+  ENGLISH
+}
+
+// Progress tracking per topic
+model Progress {
+  id          String   @id @default(cuid())
+  childId     String
+  subject     Subject
+  topic       String
+  level       Int      @default(1)
+  accuracy    Float    @default(0.0) // 0.0 to 1.0
+  totalQuestions Int   @default(0)
+  correctAnswers Int  @default(0)
+  lastPracticed DateTime @default(now())
+  
+  // Relationships
+  child       Child    @relation(fields: [childId], references: [id], onDelete: Cascade)
+  
+  @@unique([childId, subject, topic])
+  @@map("progress")
+}
+
+// Reward system
+model Reward {
+  id            String   @id @default(cuid())
+  childId       String
+  type          RewardType
+  amount        Int      // points or minutes
+  description   String
+  earnedAt      DateTime @default(now())
+  redeemedAt    DateTime?
+  isRedeemed    Boolean  @default(false)
+  
+  // Relationships
+  child         Child    @relation(fields: [childId], references: [id], onDelete: Cascade)
+  
+  @@map("rewards")
+}
+
+// Reward type enum
+enum RewardType {
+  POINTS
+  SCREEN_TIME_MINUTES
+  ROBLOX_CREDITS
+}
+
+// Avatar customization items
+model AvatarItem {
+  id          String   @id @default(cuid())
+  childId     String
+  itemType    AvatarItemType
+  itemName    String
+  itemColor   String?
+  isEquipped  Boolean  @default(false)
+  unlockedAt  DateTime @default(now())
+  
+  // Relationships
+  child       Child    @relation(fields: [childId], references: [id], onDelete: Cascade)
+  
+  @@map("avatar_items")
+}
+
+// Avatar item type enum
+enum AvatarItemType {
+  HAIR_STYLE
+  SHIRT
+  PANTS
+  SHOES
+  ACCESSORY
+  BACKGROUND
+}
+
+// Parent settings and controls
+model Settings {
+  id                    String   @id @default(cuid())
+  parentId              String
+  maxDailySessionTime   Int      @default(60) // in minutes
+  maxWeeklySessionTime  Int      @default(300) // in minutes
+  pointsPerScreenTime   Int      @default(10) // points needed for 1 minute of screen time
+  pointsPerRobux        Int      @default(100) // points needed for 1 Robux
+  sessionDifficulty     String   @default("medium") // easy, medium, hard
+  passwordProtected     Boolean  @default(true)
+  parentPassword        String?  // for accessing parent dashboard
+  
+  // Relationships
+  parent                Parent   @relation(fields: [parentId], references: [id], onDelete: Cascade)
+  
+  @@map("settings")
+}
+
+// Math questions database
+model MathQuestion {
+  id          String   @id @default(cuid())
+  question    String
+  answer      Int
+  operation   MathOperation
+  difficulty  Int      @default(1) // 1-5
+  topic       String   // e.g., "multiplication", "division"
+  
+  @@map("math_questions")
+}
+
+// Math operation enum
+enum MathOperation {
+  ADDITION
+  SUBTRACTION
+  MULTIPLICATION
+  DIVISION
+}
+
+// English questions database
+model EnglishQuestion {
+  id          String   @id @default(cuid())
+  question    String
+  options     String   // JSON array of options
+  correctAnswer String
+  questionType EnglishQuestionType
+  difficulty  Int      @default(1) // 1-5
+  topic       String   // e.g., "grammar", "reading_comprehension"
+  
+  @@map("english_questions")
+}
+
+// English question type enum
+enum EnglishQuestionType {
+  GRAMMAR
+  VOCABULARY
+  READING_COMPREHENSION
+  SENTENCE_STRUCTURE
+}
