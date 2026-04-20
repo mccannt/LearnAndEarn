@@ -12,26 +12,43 @@ datasource db {
 
 // Child user (the learner)
 model Child {
-  id              String   @id @default(cuid())
-  name            String
-  age             Int
-  avatarUrl       String?
-  totalPoints     Int      @default(0)
-  currentStreak   Int      @default(0)
-  longestStreak   Int      @default(0)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id            String    @id @default(cuid())
+  name          String
+  age           Int
+  avatarUrl     String?   @default("/default-avatar.png")
+  totalPoints   Int       @default(0)
+  currentStreak Int       @default(0)
+  longestStreak Int       @default(0)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  parentId      String
+  parent        Parent    @relation(fields: [parentId], references: [id], onDelete: Cascade)
+  
+  // Equipped Avatar Items
+  equippedHairStyle   String? @default("default")
+  equippedShirt       String? @default("blue_tee")
+  equippedPants       String? @default("jeans")
+  equippedShoes       String? @default("sneakers")
+  equippedAccessory   String? @default("none")
+  equippedBackground  String? @default("default")
 
-  // Relationships
-  parentId        String
-  parent          Parent   @relation(fields: [parentId], references: [id], onDelete: Cascade)
-  
-  sessions        LearningSession[]
-  progress        Progress[]
-  rewards         Reward[]
-  avatarItems     AvatarItem[]
-  
+  learningSessions LearningSession[]
+  progress         Progress[]
+  rewards          Reward[]
+  unlockedItems    UnlockedItem[]
+
   @@map("children")
+}
+
+model UnlockedItem {
+  id         String   @id @default(cuid())
+  childId    String
+  child      Child    @relation(fields: [childId], references: [id])
+  itemId     String
+  itemType   String // e.g., "hair_style", "shirt"
+  unlockedAt DateTime @default(now())
+
+  @@unique([childId, itemId]) // A child can only unlock an item once
 }
 
 // Parent user
@@ -115,32 +132,6 @@ enum RewardType {
   POINTS
   SCREEN_TIME_MINUTES
   ROBLOX_CREDITS
-}
-
-// Avatar customization items
-model AvatarItem {
-  id          String   @id @default(cuid())
-  childId     String
-  itemType    AvatarItemType
-  itemName    String
-  itemColor   String?
-  isEquipped  Boolean  @default(false)
-  unlockedAt  DateTime @default(now())
-  
-  // Relationships
-  child       Child    @relation(fields: [childId], references: [id], onDelete: Cascade)
-  
-  @@map("avatar_items")
-}
-
-// Avatar item type enum
-enum AvatarItemType {
-  HAIR_STYLE
-  SHIRT
-  PANTS
-  SHOES
-  ACCESSORY
-  BACKGROUND
 }
 
 // Parent settings and controls

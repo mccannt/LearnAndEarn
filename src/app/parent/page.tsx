@@ -1,82 +1,100 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowLeft, Shield, Settings, BarChart3, Clock, Target, BookOpen, Calculator, Palette, Star, Eye, EyeOff } from "lucide-react";
+import { ArrowLeft, Shield, Settings as SettingsIcon, BarChart3, Clock, Target, BookOpen, Calculator, Palette, Star, Eye, EyeOff } from "lucide-react";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import Link from "next/link";
+import { useToast } from "@/hooks/use-toast";
+
+function hashPW(pw: string) {
+  if (!pw) return "";
+  // Light client-side hash to compare with sha256:hex stored server-side (display only; real security would be server-side). 
+  // We won't import crypto in the browser; simulate by simple stable transform and rely on server default if mismatch.
+  return `sha256:${pw.split("").reverse().join("")}`; // placeholder visual check; real check will be done by comparing plaintext to default when hash not set
+}
 
 export default function ParentDashboardPage() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [settings, setSettings] = useState({
-    maxDailySessionTime: 60,
-    maxWeeklySessionTime: 300,
-    pointsPerScreenTime: 10,
-    pointsPerRobux: 100,
-    sessionDifficulty: "medium",
-    passwordProtected: true,
-    parentPassword: "parent123" // In a real app, this would be hashed
-  });
+  const [settings, setSettings] = useState<any | null>(null);
+  const [childData, setChildData] = useState<any | null>(null);
+  const [subjectProgress, setSubjectProgress] = useState<any[]>([]);
+  const [recentSessions, setRecentSessions] = useState<any[]>([]);
+  const [children, setChildren] = useState<Array<{ id: string; name: string }>>([]);
+  const [newChild, setNewChild] = useState<{ name: string; age: string }>({ name: "", age: "" });
+  const { toast } = useToast();
 
-  // Mock data
-  const childData = {
-    name: "Emma",
-    age: 9,
-    totalPoints: 150,
-    currentStreak: 5,
-    longestStreak: 12,
-    accuracy: 85,
-    totalSessions: 24,
-    weeklySessions: 5,
-    weeklyTime: 85,
-    avatarLevel: 3,
-    unlockedItems: 12
-  };
+  useEffect(() => {
+    // Load settings for authentication + limits
+    fetch("/api/settings").then(async (r) => r.json()).then((json) => setSettings(json?.settings || null)).catch(() => {});
+    // Check auth cookie
+    fetch("/api/parent/login").then(async (r) => r.json()).then((json) => setIsAuthenticated(!!json?.authed)).catch(() => {});
+    // Load progress for child + subjects
+    fetch("/api/progress").then(async (r) => r.json()).then((json) => {
+      const d = json?.data;
+      if (d) {
+        setChildData({
+          name: d.child?.name ?? "Child",
+          age: d.child?.age ?? 0,
+          totalPoints: d.child?.totalPoints ?? 0,
+          currentStreak: d.child?.currentStreak ?? 0,
+          longestStreak: d.child?.longestStreak ?? 0,
+          accuracy: d.totals?.averageAccuracy ?? 0,
+          totalSessions: d.totals?.totalSessions ?? 0,
+          weeklySessions: 0,
+          weeklyTime: 0,
+          avatarLevel: 3,
+          unlockedItems: 12,
+        });
+        setSubjectProgress(d.subjects || []);
+        setRecentSessions(d.recent || []);
+      }
+    }).catch(() => {});
+    fetch("/api/children").then(async (r) => r.json()).then((json) => setChildren((json?.children || []).map((c: any) => ({ id: c.id, name: c.name }))));
+  }, []);
 
-  const subjectProgress = [
-    { subject: "Math", progress: 65, accuracy: 82, sessions: 12, timeSpent: 180 },
-    { subject: "English", progress: 45, accuracy: 78, sessions: 8, timeSpent: 120 },
-    { subject: "Reading", progress: 75, accuracy: 88, sessions: 4, timeSpent: 60 }
-  ];
-
-  const recentSessions = [
-    { id: 1, subject: "Math", topic: "Multiplication", date: "2024-01-15", duration: 15, questions: 10, correct: 8, points: 85 },
-    { id: 2, subject: "English", topic: "Grammar", date: "2024-01-14", duration: 20, questions: 8, correct: 6, points: 90 },
-    { id: 3, subject: "Math", topic: "Division", date: "2024-01-13", duration: 12, questions: 8, correct: 7, points: 75 },
-    { id: 4, subject: "English", topic: "Vocabulary", date: "2024-01-12", duration: 18, questions: 10, correct: 9, points: 105 }
-  ];
-
-  const weeklyActivity = [
-    { day: "Mon", math: 15, english: 0 },
-    { day: "Tue", math: 0, english: 20 },
-    { day: "Wed", math: 12, english: 0 },
-    { day: "Thu", math: 0, english: 15 },
-    { day: "Fri", math: 18, english: 0 },
-    { day: "Sat", math: 0, english: 0 },
-    { day: "Sun", math: 25, english: 20 }
-  ];
-
-  const handleLogin = () => {
-    if (password === settings.parentPassword) {
-      setIsAuthenticated(true);
-    } else {
-      alert("Incorrect password");
+  const handleLogin = async () => {
+    try {
+      const resp = await fetch("/api/parent/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password }) });
+      if (resp.ok) {
+        setIsAuthenticated(true);
+      } else {
+        alert("Incorrect password");
+      }
+    } catch {
+      alert("Login failed");
     }
   };
 
-  const handleLogout = () => {
-    setIsAuthenticated(false);
-    setPassword("");
+  const handleLogout = async () => {
+    try {
+      await fetch("/api/parent/logout", { method: "POST" });
+      setIsAuthenticated(false);
+      setPassword("");
+      toast({ title: "Logged out", description: "You have been successfully logged out." });
+    } catch {
+      toast({ title: "Logout failed", description: "Please try again.", variant: "destructive" as any });
+    }
   };
 
   const updateSetting = (key: string, value: any) => {
-    setSettings(prev => ({ ...prev, [key]: value }));
+    setSettings((prev: any) => ({ ...(prev || {}), [key]: value }));
+  };
+
+  const saveSettings = async () => {
+    try {
+      const r = await fetch("/api/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(settings) });
+      if (!r.ok) throw new Error("Failed");
+      toast({ title: "Settings saved", description: "Your preferences have been updated." });
+    } catch {
+      toast({ title: "Failed to save", description: "Please try again.", variant: "destructive" as any });
+    }
   };
 
   if (!isAuthenticated) {
@@ -94,13 +112,13 @@ export default function ParentDashboardPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="relative">
-              <Input
+              <input
                 type={showPassword ? "text" : "password"}
                 placeholder="Enter password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 onKeyPress={(e) => e.key === 'Enter' && handleLogin()}
-                className="pr-10"
+                className="pr-10 w-full border rounded-md p-2"
               />
               <Button
                 variant="ghost"
@@ -126,7 +144,7 @@ export default function ParentDashboardPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 p-4 md:p-8">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 dark:from-gray-900 dark:to-gray-800 p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <header className="flex items-center justify-between mb-8">
@@ -140,16 +158,18 @@ export default function ParentDashboardPage() {
               <div className="w-10 h-10 bg-gradient-to-r from-blue-500 to-purple-500 rounded-lg flex items-center justify-center">
                 <Shield className="w-5 h-5 text-white" />
               </div>
-              <div>
-                <h1 className="text-2xl font-bold text-gray-800">Parent Dashboard</h1>
-                <p className="text-gray-600">Monitor {childData.name}'s progress and manage settings</p>
-              </div>
+                          <div>
+              <h1 className="text-2xl font-bold text-gray-800 dark:text-white">Parent Dashboard</h1>
+              <p className="text-gray-600 dark:text-gray-300">Monitor {childData?.name ?? "Child"}'s progress and manage settings</p>
+            </div>
             </div>
           </div>
-          
-          <Button onClick={handleLogout} variant="outline" className="border-red-200 text-red-600 hover:bg-red-50">
-            Logout
-          </Button>
+          <div className="flex items-center gap-2">
+            <ThemeToggle />
+            <Button onClick={handleLogout} variant="outline" className="border-red-200 text-red-600 hover:bg-red-50">
+              Logout
+            </Button>
+          </div>
         </header>
 
         <Tabs defaultValue="overview" className="space-y-6">
@@ -162,6 +182,85 @@ export default function ParentDashboardPage() {
 
           {/* Overview Tab */}
           <TabsContent value="overview" className="space-y-6">
+            {/* Child switcher + create */}
+            <Card className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm border-0 shadow-lg">
+              <CardHeader>
+                <CardTitle className="text-xl text-gray-800 dark:text-white">Children</CardTitle>
+                <CardDescription className="text-gray-600 dark:text-gray-300">Switch active child or add another</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex flex-wrap gap-2">
+                  {children.map((c) => (
+                    <div key={c.id} className="flex gap-1">
+                      <Button variant="outline" onClick={async () => { 
+                        try {
+                          const res = await fetch("/api/children", { 
+                            method: "POST", 
+                            headers: { "Content-Type": "application/json" }, 
+                            body: JSON.stringify({ childId: c.id }) 
+                          });
+                          if (res.ok) {
+                            toast({ title: "Child switched", description: `Now viewing ${c.name}'s progress.` });
+                            location.reload();
+                          } else {
+                            toast({ title: "Failed to switch child", description: "Please try again.", variant: "destructive" as any });
+                          }
+                        } catch {
+                          toast({ title: "Failed to switch child", description: "Please try again.", variant: "destructive" as any });
+                        }
+                      }}>{c.name}</Button>
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        onClick={async () => {
+                          if (!confirm(`Delete ${c.name} and all their data? This cannot be undone.`)) return;
+                          try {
+                            const res = await fetch(`/api/children/${c.id}`, { method: "DELETE" });
+                            if (res.ok) {
+                              toast({ title: "Child deleted", description: `${c.name} has been removed.` });
+                              location.reload();
+                            } else {
+                              toast({ title: "Failed to delete", description: "Please try again.", variant: "destructive" as any });
+                            }
+                          } catch {
+                            toast({ title: "Failed to delete", description: "Please try again.", variant: "destructive" as any });
+                          }
+                        }}
+                        className="text-red-600 border-red-200 hover:bg-red-50"
+                      >
+                        ×
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2 pt-2">
+                  <input placeholder="New child name" value={newChild.name} onChange={(e) => setNewChild({ ...newChild, name: e.target.value })} className="border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:placeholder-gray-400" />
+                  <input placeholder="Age" type="number" value={newChild.age} onChange={(e) => setNewChild({ ...newChild, age: e.target.value })} className="border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:placeholder-gray-400" />
+                  <Button onClick={async () => { 
+                    if (!newChild.name) {
+                      toast({ title: "Name required", description: "Please enter a child's name.", variant: "destructive" as any });
+                      return;
+                    }
+                    try {
+                      const res = await fetch("/api/children", { 
+                        method: "POST", 
+                        headers: { "Content-Type": "application/json" }, 
+                        body: JSON.stringify({ name: newChild.name, age: parseInt(newChild.age || '0', 10) }) 
+                      });
+                      if (res.ok) {
+                        toast({ title: "Child added", description: `${newChild.name} has been added successfully.` });
+                        setNewChild({ name: "", age: "" });
+                        location.reload();
+                      } else {
+                        toast({ title: "Failed to add child", description: "Please try again.", variant: "destructive" as any });
+                      }
+                    } catch {
+                      toast({ title: "Failed to add child", description: "Please try again.", variant: "destructive" as any });
+                    }
+                  }}>Add Child</Button>
+                </div>
+              </CardContent>
+            </Card>
             {/* Key Metrics */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg">
@@ -169,7 +268,7 @@ export default function ParentDashboardPage() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm text-gray-600">Total Points</p>
-                      <p className="text-2xl font-bold text-purple-600">{childData.totalPoints}</p>
+                      <p className="text-2xl font-bold text-purple-600">{childData?.totalPoints ?? 0}</p>
                     </div>
                     <Star className="w-8 h-8 text-yellow-500" />
                   </div>
@@ -181,7 +280,7 @@ export default function ParentDashboardPage() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm text-gray-600">Current Streak</p>
-                      <p className="text-2xl font-bold text-orange-600">{childData.currentStreak} days 🔥</p>
+                      <p className="text-2xl font-bold text-orange-600">{childData?.currentStreak ?? 0} days 🔥</p>
                     </div>
                     <Target className="w-8 h-8 text-orange-500" />
                   </div>
@@ -193,7 +292,7 @@ export default function ParentDashboardPage() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm text-gray-600">Accuracy</p>
-                      <p className="text-2xl font-bold text-green-600">{childData.accuracy}%</p>
+                      <p className="text-2xl font-bold text-green-600">{childData?.accuracy ?? 0}%</p>
                     </div>
                     <BarChart3 className="w-8 h-8 text-green-500" />
                   </div>
@@ -204,8 +303,8 @@ export default function ParentDashboardPage() {
                 <CardContent className="p-6">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm text-gray-600">This Week</p>
-                      <p className="text-2xl font-bold text-blue-600">{childData.weeklySessions} sessions</p>
+                      <p className="text-sm text-gray-600">Total Sessions</p>
+                      <p className="text-2xl font-bold text-blue-600">{childData?.totalSessions ?? 0}</p>
                     </div>
                     <Clock className="w-8 h-8 text-blue-500" />
                   </div>
@@ -243,25 +342,14 @@ export default function ParentDashboardPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
-                    {weeklyActivity.map((day) => (
-                      <div key={day.day} className="flex items-center gap-4">
-                        <div className="w-12 text-sm font-medium text-gray-600">{day.day}</div>
+                    {/* Use recent sessions as a simple activity list */}
+                    {recentSessions.slice(0, 7).map((s, i) => (
+                      <div key={i} className="flex items-center gap-4">
+                        <div className="w-12 text-sm font-medium text-gray-600">{new Date(s.completedAt).toLocaleDateString()}</div>
                         <div className="flex-1 flex gap-2">
-                          {day.math > 0 && (
-                            <div className="flex-1 bg-blue-100 rounded px-2 py-1 text-xs text-blue-700 text-center">
-                              Math: {day.math}m
-                            </div>
-                          )}
-                          {day.english > 0 && (
-                            <div className="flex-1 bg-pink-100 rounded px-2 py-1 text-xs text-pink-700 text-center">
-                              English: {day.english}m
-                            </div>
-                          )}
-                          {day.math === 0 && day.english === 0 && (
-                            <div className="flex-1 text-center text-xs text-gray-400">
-                              No activity
-                            </div>
-                          )}
+                          <div className={`flex-1 ${s.subject === 'MATH' ? 'bg-blue-100 text-blue-700' : 'bg-pink-100 text-pink-700'} rounded px-2 py-1 text-xs text-center`}>
+                            {s.subject === 'MATH' ? 'Math' : 'English'}: {s.duration}m
+                          </div>
                         </div>
                       </div>
                     ))}
@@ -277,172 +365,25 @@ export default function ParentDashboardPage() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  {recentSessions.map((session) => (
-                    <div key={session.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                  {recentSessions.map((session, idx) => (
+                    <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                       <div className="flex items-center gap-3">
-                        <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                          session.subject === "Math" ? "bg-blue-100" : "bg-pink-100"
-                        }`}>
-                          {session.subject === "Math" ? 
+                        <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${session.subject === 'MATH' ? 'bg-blue-100' : 'bg-pink-100'}`}>
+                          {session.subject === 'MATH' ? 
                             <Calculator className="w-5 h-5 text-blue-600" /> : 
                             <BookOpen className="w-5 h-5 text-pink-600" />
                           }
                         </div>
                         <div>
-                          <div className="font-semibold text-gray-800">{session.subject} - {session.topic}</div>
+                          <div className="font-semibold text-gray-800">{session.subject === 'MATH' ? 'Math' : 'English'} - {session.topic}</div>
                           <div className="text-sm text-gray-600">
-                            {session.duration} min • {session.questions} questions • {session.correct}/{session.questions} correct
+                            {session.duration} min • {session.questions} questions • {session.questionsCorrect}/{session.questionsAsked} correct
                           </div>
                         </div>
                       </div>
                       <div className="text-right">
-                        <div className="font-semibold text-purple-600">+{session.points} pts</div>
-                        <div className="text-sm text-gray-600">{session.date}</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Progress Tab */}
-          <TabsContent value="progress" className="space-y-6">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg">
-                <CardHeader>
-                  <CardTitle className="text-xl text-gray-800">Learning Journey</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="text-center">
-                    <div className="text-4xl font-bold text-purple-600 mb-2">Level 3</div>
-                    <div className="text-sm text-gray-600">Current Learning Level</div>
-                    <Progress value={65} className="mt-2 h-3" />
-                    <div className="text-xs text-gray-500 mt-1">65% to Level 4</div>
-                  </div>
-                  
-                  <div className="grid grid-cols-2 gap-4 pt-4">
-                    <div className="text-center p-3 bg-purple-50 rounded-lg">
-                      <div className="text-lg font-bold text-purple-600">{childData.totalSessions}</div>
-                      <div className="text-xs text-gray-600">Total Sessions</div>
-                    </div>
-                    <div className="text-center p-3 bg-blue-50 rounded-lg">
-                      <div className="text-lg font-bold text-blue-600">{childData.weeklyTime}</div>
-                      <div className="text-xs text-gray-600">Minutes This Week</div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg">
-                <CardHeader>
-                  <CardTitle className="text-xl text-gray-800">Achievements</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between p-3 bg-yellow-50 rounded-lg">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-yellow-100 rounded-full flex items-center justify-center">
-                          🏆
-                        </div>
-                        <div>
-                          <div className="font-semibold text-gray-800">First Week Complete</div>
-                          <div className="text-sm text-gray-600">Finished first week of learning</div>
-                        </div>
-                      </div>
-                      <Badge variant="secondary" className="bg-yellow-100 text-yellow-700">
-                        Earned
-                      </Badge>
-                    </div>
-
-                    <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-                          🔥
-                        </div>
-                        <div>
-                          <div className="font-semibold text-gray-800">On Fire!</div>
-                          <div className="text-sm text-gray-600">5 day learning streak</div>
-                        </div>
-                      </div>
-                      <Badge variant="secondary" className="bg-blue-100 text-blue-700">
-                        Active
-                      </Badge>
-                    </div>
-
-                    <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
-                          ⭐
-                        </div>
-                        <div>
-                          <div className="font-semibold text-gray-800">Math Master</div>
-                          <div className="text-sm text-gray-600">Scored 90%+ in math</div>
-                        </div>
-                      </div>
-                      <Badge variant="secondary" className="bg-green-100 text-green-700">
-                        Earned
-                      </Badge>
-                    </div>
-
-                    <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg opacity-60">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center">
-                          👑
-                        </div>
-                        <div>
-                          <div className="font-semibold text-gray-800">Avatar Collector</div>
-                          <div className="text-sm text-gray-600">Unlock 20 avatar items</div>
-                        </div>
-                      </div>
-                      <Badge variant="secondary" className="bg-gray-100 text-gray-600">
-                        12/20
-                      </Badge>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          </TabsContent>
-
-          {/* Sessions Tab */}
-          <TabsContent value="sessions" className="space-y-6">
-            <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg">
-              <CardHeader>
-                <CardTitle className="text-xl text-gray-800">All Learning Sessions</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  {recentSessions.map((session) => (
-                    <div key={session.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-                      <div className="flex items-center gap-4">
-                        <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${
-                          session.subject === "Math" ? "bg-blue-100" : "bg-pink-100"
-                        }`}>
-                          {session.subject === "Math" ? 
-                            <Calculator className="w-6 h-6 text-blue-600" /> : 
-                            <BookOpen className="w-6 h-6 text-pink-600" />
-                          }
-                        </div>
-                        <div>
-                          <div className="font-semibold text-gray-800">{session.subject} - {session.topic}</div>
-                          <div className="text-sm text-gray-600">
-                            {session.duration} minutes • {session.questions} questions
-                          </div>
-                          <div className="text-xs text-gray-500">{session.date}</div>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-sm font-medium text-gray-600">Accuracy:</span>
-                          <span className={`font-semibold ${
-                            (session.correct / session.questions) >= 0.8 ? "text-green-600" : 
-                            (session.correct / session.questions) >= 0.6 ? "text-yellow-600" : "text-red-600"
-                          }`}>
-                            {Math.round((session.correct / session.questions) * 100)}%
-                          </span>
-                        </div>
-                        <div className="font-semibold text-purple-600">+{session.points} points</div>
+                        <div className="font-semibold text-purple-600">+{session.pointsEarned} pts</div>
+                        <div className="text-sm text-gray-600">{new Date(session.completedAt).toLocaleDateString()}</div>
                       </div>
                     </div>
                   ))}
@@ -458,148 +399,78 @@ export default function ParentDashboardPage() {
                 <CardHeader>
                   <CardTitle className="text-xl text-gray-800">Session Limits</CardTitle>
                   <CardDescription className="text-gray-600">
-                    Control how much time {childData.name} can spend learning
+                    Control how much time your child can spend learning
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Daily Session Limit (minutes)
-                    </label>
-                    <Input
-                      type="number"
-                      value={settings.maxDailySessionTime}
-                      onChange={(e) => updateSetting("maxDailySessionTime", parseInt(e.target.value))}
-                      className="w-full"
-                    />
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Daily Session Limit (minutes)</label>
+                    <input type="number" value={settings?.maxDailySessionTime ?? 60} onChange={(e) => updateSetting("maxDailySessionTime", parseInt(e.target.value))} className="w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
                   </div>
-                  
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Weekly Session Limit (minutes)
-                    </label>
-                    <Input
-                      type="number"
-                      value={settings.maxWeeklySessionTime}
-                      onChange={(e) => updateSetting("maxWeeklySessionTime", parseInt(e.target.value))}
-                      className="w-full"
-                    />
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Weekly Session Limit (minutes)</label>
+                    <input type="number" value={settings?.maxWeeklySessionTime ?? 300} onChange={(e) => updateSetting("maxWeeklySessionTime", parseInt(e.target.value))} className="w-full border rounded-md p-2 dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
                   </div>
+                  <div className="flex gap-2">
+                    <Button onClick={saveSettings} variant="outline" className="border-blue-200">
+                      <SettingsIcon className="w-4 h-4 mr-2" /> Save Settings
+                    </Button>
+                    <Button onClick={async () => { 
+                      const resetType = await new Promise<string>((resolve) => {
+                        const dialog = document.createElement('div');
+                        dialog.className = 'fixed inset-0 bg-black/50 flex items-center justify-center z-50';
+                        dialog.innerHTML = `
+                          <div class="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+                            <h3 class="text-lg font-semibold mb-4">Select Reset Type</h3>
+                            <div class="space-y-2">
+                              <button class="w-full text-left p-2 hover:bg-gray-100 rounded" data-type="all">All Data (Complete Reset)</button>
+                              <button class="w-full text-left p-2 hover:bg-gray-100 rounded" data-type="sessions">Learning Sessions Only</button>
+                              <button class="w-full text-left p-2 hover:bg-gray-100 rounded" data-type="progress">Progress Data Only</button>
+                              <button class="w-full text-left p-2 hover:bg-gray-100 rounded" data-type="rewards">Reward History Only</button>
+                              <button class="w-full text-left p-2 hover:bg-gray-100 rounded" data-type="points">Points & Streak Only</button>
+                            </div>
+                            <div class="flex gap-2 mt-4">
+                              <button class="flex-1 px-4 py-2 text-gray-600 border rounded hover:bg-gray-50" onclick="this.closest('.fixed').remove()">Cancel</button>
+                            </div>
+                          </div>
+                        `;
+                        
+                        dialog.addEventListener('click', (e) => {
+                          const target = e.target as HTMLElement;
+                          if (target.dataset.type) {
+                            resolve(target.dataset.type);
+                            dialog.remove();
+                          }
+                        });
+                        
+                        document.body.appendChild(dialog);
+                      });
+                      
+                      if (!resetType) return;
+                      
+                      if (!confirm(`Reset ${resetType === 'all' ? 'all data' : resetType} for the active child? This cannot be undone.`)) return;
+                      
+                      try {
+                        const res = await fetch('/api/admin/reset', { 
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ resetType })
+                        });
+                        if (res.ok) {
+                          const data = await res.json();
+                          toast({ title: 'Data reset', description: data.message || 'Reset completed successfully.' });
+                          location.reload();
+                        } else {
+                          toast({ title: 'Reset failed', description: 'Please try again.', variant: 'destructive' as any });
+                        }
+                      } catch {
+                        toast({ title: 'Reset failed', description: 'Please try again.', variant: 'destructive' as any });
+                      }
+                    }} variant="outline" className="border-red-200 text-red-600">
+                      Reset Data
+                    </Button>
 
-                  <div className="p-3 bg-blue-50 rounded-lg">
-                    <div className="text-sm text-blue-800">
-                      <strong>This week:</strong> {childData.weeklyTime} / {settings.maxWeeklySessionTime} minutes used
-                    </div>
-                    <Progress value={(childData.weeklyTime / settings.maxWeeklySessionTime) * 100} className="mt-2 h-2" />
                   </div>
-                </CardContent>
-              </Card>
-
-              <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg">
-                <CardHeader>
-                  <CardTitle className="text-xl text-gray-800">Reward Settings</CardTitle>
-                  <CardDescription className="text-gray-600">
-                    Configure how points convert to rewards
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Points per Minute of Screen Time
-                    </label>
-                    <Input
-                      type="number"
-                      value={settings.pointsPerScreenTime}
-                      onChange={(e) => updateSetting("pointsPerScreenTime", parseInt(e.target.value))}
-                      className="w-full"
-                    />
-                    <div className="text-xs text-gray-500 mt-1">
-                      Current: {childData.totalPoints} points = {Math.floor(childData.totalPoints / settings.pointsPerScreenTime)} minutes
-                    </div>
-                  </div>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Points per Robux
-                    </label>
-                    <Input
-                      type="number"
-                      value={settings.pointsPerRobux}
-                      onChange={(e) => updateSetting("pointsPerRobux", parseInt(e.target.value))}
-                      className="w-full"
-                    />
-                    <div className="text-xs text-gray-500 mt-1">
-                      Current: {childData.totalPoints} points = {Math.floor(childData.totalPoints / settings.pointsPerRobux)} Robux
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg">
-                <CardHeader>
-                  <CardTitle className="text-xl text-gray-800">Learning Preferences</CardTitle>
-                  <CardDescription className="text-gray-600">
-                    Adjust difficulty and other settings
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Default Difficulty
-                    </label>
-                    <select
-                      value={settings.sessionDifficulty}
-                      onChange={(e) => updateSetting("sessionDifficulty", e.target.value)}
-                      className="w-full p-2 border border-gray-300 rounded-md"
-                    >
-                      <option value="easy">Easy</option>
-                      <option value="medium">Medium</option>
-                      <option value="hard">Hard</option>
-                    </select>
-                  </div>
-                  
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="text-sm font-medium text-gray-700">Password Protection</div>
-                      <div className="text-xs text-gray-500">Require password for parent access</div>
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={settings.passwordProtected}
-                      onChange={(e) => updateSetting("passwordProtected", e.target.checked)}
-                      className="w-4 h-4"
-                    />
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg">
-                <CardHeader>
-                  <CardTitle className="text-xl text-gray-800">Account Management</CardTitle>
-                  <CardDescription className="text-gray-600">
-                    Manage account settings
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Change Parent Password
-                    </label>
-                    <Input
-                      type="password"
-                      placeholder="Enter new password"
-                      onChange={(e) => updateSetting("parentPassword", e.target.value)}
-                      className="w-full"
-                    />
-                  </div>
-                  
-                  <Button variant="outline" className="w-full border-red-200 text-red-600 hover:bg-red-50">
-                    Export Learning Data
-                  </Button>
-                  
-                  <Button variant="outline" className="w-full border-orange-200 text-orange-600 hover:bg-orange-50">
-                    Reset All Progress
-                  </Button>
                 </CardContent>
               </Card>
             </div>

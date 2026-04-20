@@ -7,6 +7,7 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { ArrowLeft, BookOpen, Trophy, Clock, Target, Star, CheckCircle } from "lucide-react";
 import Link from "next/link";
+import type { SessionQuestionResult } from "@/lib/scoring";
 
 interface EnglishQuestion {
   id: string;
@@ -42,15 +43,20 @@ export default function EnglishLearningPage() {
   const [timeLimitReached, setTimeLimitReached] = useState(false);
   const [warningShown, setWarningShown] = useState(false);
 
-  // Mock settings - in a real app, this would come from the database
-  const settings = {
-    maxDailySessionTime: 60, // minutes
-    maxWeeklySessionTime: 300, // minutes
-    weeklyTimeUsed: 85, // minutes used this week
-    dailyTimeUsed: 15, // minutes used today
-  };
+  const [limits, setLimits] = useState({ maxDailySessionTime: 60, maxWeeklySessionTime: 300, weeklyTimeUsed: 0, dailyTimeUsed: 0 });
+  const [questionQueue, setQuestionQueue] = useState<EnglishQuestion[]>([]);
+  const [questionResults, setQuestionResults] = useState<SessionQuestionResult[]>([]);
 
-  // Timer effect
+  useEffect(() => {
+    fetch("/api/settings").then(async (r) => {
+      const json = await r.json();
+      const s = json?.settings;
+      if (s) {
+        setLimits((prev) => ({...prev, maxDailySessionTime: s.maxDailySessionTime ?? prev.maxDailySessionTime, maxWeeklySessionTime: s.maxWeeklySessionTime ?? prev.maxWeeklySessionTime }));
+      }
+    }).catch(() => {});
+  }, []);
+
   useEffect(() => {
     let interval: NodeJS.Timeout;
     if (sessionActive && !timeLimitReached) {
@@ -58,155 +64,49 @@ export default function EnglishLearningPage() {
         const newTime = sessionTime + 1;
         setSessionTime(newTime);
         setSessionStats(prev => ({ ...prev, timeElapsed: prev.timeElapsed + 1 }));
-        
-        // Check daily limit
-        const totalDailyTime = settings.dailyTimeUsed + Math.floor(newTime / 60);
-        if (totalDailyTime >= settings.maxDailySessionTime && !warningShown) {
+        const totalDailyTime = limits.dailyTimeUsed + Math.floor(newTime / 60);
+        if (totalDailyTime >= limits.maxDailySessionTime && !warningShown) {
           setWarningShown(true);
-          // Show warning but don't stop immediately
         }
-        
-        // Hard stop at daily limit + 5 minutes grace period
-        if (totalDailyTime >= settings.maxDailySessionTime + 5) {
+        if (totalDailyTime >= limits.maxDailySessionTime + 5) {
           setTimeLimitReached(true);
-          endSession();
+          endSession(true);
         }
-        
-        // Check weekly limit
-        const totalWeeklyTime = settings.weeklyTimeUsed + Math.floor(newTime / 60);
-        if (totalWeeklyTime >= settings.maxWeeklySessionTime) {
+        const totalWeeklyTime = limits.weeklyTimeUsed + Math.floor(newTime / 60);
+        if (totalWeeklyTime >= limits.maxWeeklySessionTime) {
           setTimeLimitReached(true);
-          endSession();
+          endSession(true);
         }
       }, 1000);
     }
     return () => clearInterval(interval);
-  }, [sessionActive, timeLimitReached, warningShown]);
+  }, [sessionActive, timeLimitReached, warningShown, sessionTime, limits]);
 
-  // Sample English questions database
+  useEffect(() => {
+    const url = new URL(window.location.origin + "/api/questions/english");
+    const type = selectedTopic === "all" ? undefined : selectedTopic.toUpperCase();
+    if (type) url.searchParams.set("type", type);
+    url.searchParams.set("difficulty", String(selectedDifficulty));
+    fetch(url.toString()).then(r => r.json()).then(json => {
+      const list: any[] = json?.questions || [];
+      const mapped: EnglishQuestion[] = list.map((q) => ({ id: String(q.id), question: q.question, options: q.options, correctAnswer: q.correctAnswer, questionType: (q.questionType as string).toLowerCase() as any, difficulty: q.difficulty }));
+      if (mapped.length > 0) setQuestionQueue(mapped);
+    }).catch(() => {});
+  }, [selectedTopic, selectedDifficulty]);
+
   const questionBank: EnglishQuestion[] = [
-    // Grammar questions
-    {
-      id: "1",
-      question: "Which sentence is correct?",
-      options: [
-        "Me and my friend went to the park.",
-        "My friend and I went to the park.",
-        "My friend and me went to the park.",
-        "I and my friend went to the park."
-      ],
-      correctAnswer: "My friend and I went to the park.",
-      questionType: "grammar",
-      difficulty: 1
-    },
-    {
-      id: "2",
-      question: "Choose the correct verb: 'She ___ to school every day.'",
-      options: ["go", "goes", "going", "gone"],
-      correctAnswer: "goes",
-      questionType: "grammar",
-      difficulty: 1
-    },
-    {
-      id: "3",
-      question: "Which is the proper way to write this sentence? 'the cat sat on the mat'",
-      options: [
-        "the cat sat on the mat",
-        "The cat sat on the mat",
-        "The Cat Sat On The Mat",
-        "The cat sat on the mat."
-      ],
-      correctAnswer: "The cat sat on the mat.",
-      questionType: "grammar",
-      difficulty: 2
-    },
-    // Vocabulary questions
-    {
-      id: "4",
-      question: "What does 'enormous' mean?",
-      options: ["Very small", "Very large", "Very fast", "Very slow"],
-      correctAnswer: "Very large",
-      questionType: "vocabulary",
-      difficulty: 1
-    },
-    {
-      id: "5",
-      question: "Choose the word that means 'happy':",
-      options: ["Sad", "Angry", "Joyful", "Tired"],
-      correctAnswer: "Joyful",
-      questionType: "vocabulary",
-      difficulty: 1
-    },
-    {
-      id: "6",
-      question: "What is the meaning of 'perseverance'?",
-      options: [
-        "Giving up easily",
-        "Continuing despite difficulties",
-        "Running very fast",
-        "Being very loud"
-      ],
-      correctAnswer: "Continuing despite difficulties",
-      questionType: "vocabulary",
-      difficulty: 3
-    },
-    // Reading comprehension questions
-    {
-      id: "7",
-      question: "Read the sentence: 'The bright yellow sun warmed the green grass.' What is the main idea?",
-      options: [
-        "The sun is yellow",
-        "The grass is green",
-        "The sun is warming the grass",
-        "The grass is bright"
-      ],
-      correctAnswer: "The sun is warming the grass",
-      questionType: "reading_comprehension",
-      difficulty: 1
-    },
-    {
-      id: "8",
-      question: "Read: 'Sarah loves to read books. She goes to the library every Saturday. Her favorite books are about animals.' What does Sarah like to do?",
-      options: [
-        "Play sports",
-        "Read books",
-        "Watch movies",
-        "Draw pictures"
-      ],
-      correctAnswer: "Read books",
-      questionType: "reading_comprehension",
-      difficulty: 1
-    },
-    // Sentence structure questions
-    {
-      id: "9",
-      question: "Which is a complete sentence?",
-      options: [
-        "Running in the park",
-        "The big dog",
-        "The cat sleeps on the couch",
-        "Very happy today"
-      ],
-      correctAnswer: "The cat sleeps on the couch",
-      questionType: "sentence_structure",
-      difficulty: 1
-    },
-    {
-      id: "10",
-      question: "Choose the sentence that has correct punctuation:",
-      options: [
-        "What time is it",
-        "What time is it!",
-        "What time is it?",
-        "What time is it."
-      ],
-      correctAnswer: "What time is it?",
-      questionType: "sentence_structure",
-      difficulty: 1
-    }
+    { id: "1", question: "Which sentence is correct?", options: ["Me and my friend went to the park.", "My friend and I went to the park.", "My friend and me went to the park.", "I and my friend went to the park."], correctAnswer: "My friend and I went to the park.", questionType: "grammar", difficulty: 1 },
+    { id: "2", question: "Choose the correct verb: 'She ___ to school every day.'", options: ["go", "goes", "going", "gone"], correctAnswer: "goes", questionType: "grammar", difficulty: 1 },
+    { id: "3", question: "Which is the proper way to write this sentence? 'the cat sat on the mat'", options: ["the cat sat on the mat", "The cat sat on the mat", "The Cat Sat On The Mat", "The cat sat on the mat."], correctAnswer: "The cat sat on the mat.", questionType: "grammar", difficulty: 2 },
+    { id: "4", question: "What does 'enormous' mean?", options: ["Very small", "Very large", "Very fast", "Very slow"], correctAnswer: "Very large", questionType: "vocabulary", difficulty: 1 },
+    { id: "5", question: "Choose the word that means 'happy':", options: ["Sad", "Angry", "Joyful", "Tired"], correctAnswer: "Joyful", questionType: "vocabulary", difficulty: 1 },
+    { id: "6", question: "What is the meaning of 'perseverance'?", options: ["Giving up easily", "Continuing despite difficulties", "Running very fast", "Being very loud"], correctAnswer: "Continuing despite difficulties", questionType: "vocabulary", difficulty: 3 },
+    { id: "7", question: "Read the sentence: 'The bright yellow sun warmed the green grass.' What is the main idea?", options: ["The sun is yellow", "The grass is green", "The sun is warming the grass", "The grass is bright"], correctAnswer: "The sun is warming the grass", questionType: "reading_comprehension", difficulty: 1 },
+    { id: "8", question: "Read: 'Sarah loves to read books. She goes to the library every Saturday. Her favorite books are about animals.' What does Sarah like to do?", options: ["Play sports", "Read books", "Watch movies", "Draw pictures"], correctAnswer: "Read books", questionType: "reading_comprehension", difficulty: 1 },
+    { id: "9", question: "Which is a complete sentence?", options: ["Running in the park", "The big dog", "The cat sleeps on the couch", "Very happy today"], correctAnswer: "The cat sleeps on the couch", questionType: "sentence_structure", difficulty: 1 },
+    { id: "10", question: "Choose the sentence that has correct punctuation:", options: ["What time is it", "What time is it!", "What time is it?", "What time is it."], correctAnswer: "What time is it?", questionType: "sentence_structure", difficulty: 1 },
   ];
 
-  // Get filtered questions
   const getFilteredQuestions = (): EnglishQuestion[] => {
     return questionBank.filter(q => {
       const topicMatch = selectedTopic === "all" || q.questionType === selectedTopic;
@@ -215,88 +115,105 @@ export default function EnglishLearningPage() {
     });
   };
 
-  // Get random question
   const getRandomQuestion = (): EnglishQuestion => {
     const filteredQuestions = getFilteredQuestions();
     if (filteredQuestions.length === 0) {
-      // Fallback to any question if no matches
       return questionBank[Math.floor(Math.random() * questionBank.length)];
     }
     return filteredQuestions[Math.floor(Math.random() * filteredQuestions.length)];
   };
 
-  // Start new session
   const startSession = () => {
     setSessionActive(true);
-    setSessionStats({
-      questionsAsked: 0,
-      questionsCorrect: 0,
-      pointsEarned: 0,
-      timeElapsed: 0,
-    });
+    setSessionStats({ questionsAsked: 0, questionsCorrect: 0, pointsEarned: 0, timeElapsed: 0 });
     setSessionTime(0);
+    setQuestionResults([]);
     nextQuestion();
   };
 
-  // Get next question
   const nextQuestion = () => {
+    if (questionQueue.length > 0) {
+      const [next, ...rest] = questionQueue;
+      setQuestionQueue(rest);
+      setCurrentQuestion(next);
+      setSelectedAnswer(null);
+      setFeedback({ type: null, message: "" });
+      setIsSubmitting(false);
+      return;
+    }
     setCurrentQuestion(getRandomQuestion());
     setSelectedAnswer(null);
     setFeedback({ type: null, message: "" });
     setIsSubmitting(false);
   };
 
-  // Submit answer
   const submitAnswer = () => {
     if (!currentQuestion || !selectedAnswer) return;
-    
     setIsSubmitting(true);
     const isCorrect = selectedAnswer === currentQuestion.correctAnswer;
-    
-    // Calculate points based on difficulty and speed
-    const basePoints = currentQuestion.difficulty * 15; // English questions worth more
-    const speedBonus = Math.max(0, 45 - Math.min(sessionTime, 45)); // More time for English
+    const basePoints = currentQuestion.difficulty * 15;
+    const speedBonus = Math.max(0, 45 - Math.min(sessionTime, 45));
     const pointsEarned = isCorrect ? basePoints + speedBonus : 0;
-    
     setFeedback({
       type: isCorrect ? "correct" : "incorrect",
       message: isCorrect 
         ? `Correct! +${pointsEarned} points ${speedBonus > 0 ? `(Speed bonus: +${speedBonus})` : ""}`
         : `Incorrect. The correct answer is: ${currentQuestion.correctAnswer}`,
     });
-    
     setSessionStats(prev => ({
       questionsAsked: prev.questionsAsked + 1,
       questionsCorrect: prev.questionsCorrect + (isCorrect ? 1 : 0),
       pointsEarned: prev.pointsEarned + pointsEarned,
       timeElapsed: prev.timeElapsed,
     }));
-    
-    // Auto-advance after delay
-    setTimeout(() => {
-      nextQuestion();
-    }, 3000);
+    setQuestionResults((prev) => [
+      ...prev,
+      {
+        difficulty: currentQuestion.difficulty,
+        isCorrect,
+        secondsElapsed: sessionTime,
+      },
+    ]);
+    setTimeout(() => { nextQuestion(); }, 3000);
   };
 
-  // End session
-  const endSession = () => {
+  const postSession = async () => {
+    if (!currentQuestion) return;
+    const minutes = Math.max(1, Math.round(sessionTime / 60));
+    try {
+      await fetch("/api/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          subject: "ENGLISH",
+          topic: currentQuestion.questionType,
+          duration: minutes,
+          questionsAsked: sessionStats.questionsAsked,
+          questionsCorrect: sessionStats.questionsCorrect,
+          pointsEarned: sessionStats.pointsEarned,
+          completedAt: new Date().toISOString(),
+          questionResults,
+        }),
+      });
+    } catch {}
+  };
+
+  const endSession = (auto = false) => {
     setSessionActive(false);
+    postSession();
     setCurrentQuestion(null);
   };
 
-  // Format time
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  // Calculate accuracy
   const accuracy = sessionStats.questionsAsked > 0 
     ? Math.round((sessionStats.questionsCorrect / sessionStats.questionsAsked) * 100)
     : 0;
 
-  // Get topic display name
   const getTopicDisplayName = (topic: string) => {
     switch (topic) {
       case "grammar": return "Grammar";
@@ -483,34 +400,26 @@ export default function EnglishLearningPage() {
                     <div className="text-sm text-gray-600">Time</div>
                   </div>
                 </div>
-                
-                {/* Time Limit Warning */}
+
                 {warningShown && !timeLimitReached && (
                   <div className="mt-4 p-3 bg-yellow-100 border border-yellow-200 rounded-lg">
                     <div className="flex items-center gap-2 text-yellow-800">
                       <Clock className="w-4 h-4" />
                       <span className="text-sm font-medium">
-                        Time limit warning: You have {settings.maxDailySessionTime - (settings.dailyTimeUsed + Math.floor(sessionTime / 60))} minutes left today
+                        Time limit warning: You have {limits.maxDailySessionTime - (limits.dailyTimeUsed + Math.floor(sessionTime / 60))} minutes left today
                       </span>
                     </div>
                   </div>
                 )}
-                
-                {/* Time Limits Info */}
+
                 <div className="mt-4 grid grid-cols-2 gap-4 text-xs text-gray-600">
                   <div className="text-center">
-                    <div>Daily: {settings.dailyTimeUsed + Math.floor(sessionTime / 60)}/{settings.maxDailySessionTime} min</div>
-                    <Progress 
-                      value={((settings.dailyTimeUsed + Math.floor(sessionTime / 60)) / settings.maxDailySessionTime) * 100} 
-                      className="h-1 mt-1" 
-                    />
+                    <div>Daily: {limits.dailyTimeUsed + Math.floor(sessionTime / 60)}/{limits.maxDailySessionTime} min</div>
+                    <Progress value={((limits.dailyTimeUsed + Math.floor(sessionTime / 60)) / limits.maxDailySessionTime) * 100} className="h-1 mt-1" />
                   </div>
                   <div className="text-center">
-                    <div>Weekly: {settings.weeklyTimeUsed + Math.floor(sessionTime / 60)}/{settings.maxWeeklySessionTime} min</div>
-                    <Progress 
-                      value={((settings.weeklyTimeUsed + Math.floor(sessionTime / 60)) / settings.maxWeeklySessionTime) * 100} 
-                      className="h-1 mt-1" 
-                    />
+                    <div>Weekly: {limits.weeklyTimeUsed + Math.floor(sessionTime / 60)}/{limits.maxWeeklySessionTime} min</div>
+                    <Progress value={((limits.weeklyTimeUsed + Math.floor(sessionTime / 60)) / limits.maxWeeklySessionTime) * 100} className="h-1 mt-1" />
                   </div>
                 </div>
               </CardContent>
@@ -567,7 +476,7 @@ export default function EnglishLearningPage() {
                                 {String.fromCharCode(65 + index)}
                               </span>
                             )}
-                            {!selectedAnswer === option && (
+                            {selectedAnswer !== option && (
                               <span className="text-sm text-gray-500">
                                 {String.fromCharCode(65 + index)}
                               </span>
@@ -578,7 +487,7 @@ export default function EnglishLearningPage() {
                       </Button>
                     ))}
                   </div>
-                  
+
                   {feedback.message && (
                     <div className={`text-center p-4 rounded-lg ${
                       feedback.type === "correct" 
@@ -595,7 +504,7 @@ export default function EnglishLearningPage() {
                       </div>
                     </div>
                   )}
-                  
+
                   <div className="flex justify-center gap-4">
                     <Button 
                       onClick={submitAnswer}
@@ -606,7 +515,7 @@ export default function EnglishLearningPage() {
                     </Button>
                     <Button 
                       variant="outline"
-                      onClick={endSession}
+                      onClick={() => endSession(false)}
                       className="border-red-200 text-red-600 hover:bg-red-50"
                     >
                       End Session

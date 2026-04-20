@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { ArrowLeft, Calculator, Trophy, Clock, Target, Star } from "lucide-react";
 import Link from "next/link";
+import type { SessionQuestionResult } from "@/lib/scoring";
 
 interface MathQuestion {
   id: string;
@@ -41,14 +42,43 @@ export default function MathLearningPage() {
   const [sessionTime, setSessionTime] = useState(0);
   const [timeLimitReached, setTimeLimitReached] = useState(false);
   const [warningShown, setWarningShown] = useState(false);
+  const [questionQueue, setQuestionQueue] = useState<MathQuestion[]>([]);
+  const [questionResults, setQuestionResults] = useState<SessionQuestionResult[]>([]);
 
-  // Mock settings - in a real app, this would come from the database
-  const settings = {
-    maxDailySessionTime: 60, // minutes
-    maxWeeklySessionTime: 300, // minutes
-    weeklyTimeUsed: 85, // minutes used this week
-    dailyTimeUsed: 15, // minutes used today
-  };
+  const [limits, setLimits] = useState({
+    maxDailySessionTime: 60,
+    maxWeeklySessionTime: 300,
+    weeklyTimeUsed: 0,
+    dailyTimeUsed: 0,
+  });
+
+  useEffect(() => {
+    // Load limits from settings API
+    fetch("/api/settings").then(async (r) => {
+      const json = await r.json();
+      const s = json?.settings;
+      if (s) {
+        setLimits((prev) => ({
+          ...prev,
+          maxDailySessionTime: s.maxDailySessionTime ?? prev.maxDailySessionTime,
+          maxWeeklySessionTime: s.maxWeeklySessionTime ?? prev.maxWeeklySessionTime,
+        }));
+      }
+    }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    // Prefetch questions from API based on difficulty and operation
+    const topic = selectedOperation === "multiplication" ? "multiplication" : selectedOperation === "division" ? "division" : undefined;
+    const url = new URL(window.location.origin + "/api/questions/math");
+    if (topic) url.searchParams.set("topic", topic);
+    url.searchParams.set("difficulty", String(selectedDifficulty));
+    fetch(url.toString()).then(r => r.json()).then(json => {
+      const list: any[] = json?.questions || [];
+      const mapped: MathQuestion[] = list.map((q) => ({ id: String(q.id), question: q.question, answer: q.answer, operation: (q.operation === 'DIVISION' ? 'division' : 'multiplication') as any, difficulty: q.difficulty }));
+      if (mapped.length > 0) setQuestionQueue(mapped);
+    }).catch(() => {});
+  }, [selectedOperation, selectedDifficulty]);
 
   // Timer effect
   useEffect(() => {
@@ -58,50 +88,37 @@ export default function MathLearningPage() {
         const newTime = sessionTime + 1;
         setSessionTime(newTime);
         setSessionStats(prev => ({ ...prev, timeElapsed: prev.timeElapsed + 1 }));
-        
-        // Check daily limit
-        const totalDailyTime = settings.dailyTimeUsed + Math.floor(newTime / 60);
-        if (totalDailyTime >= settings.maxDailySessionTime && !warningShown) {
+        const totalDailyTime = limits.dailyTimeUsed + Math.floor(newTime / 60);
+        if (totalDailyTime >= limits.maxDailySessionTime && !warningShown) {
           setWarningShown(true);
-          // Show warning but don't stop immediately
         }
-        
-        // Hard stop at daily limit + 5 minutes grace period
-        if (totalDailyTime >= settings.maxDailySessionTime + 5) {
+        if (totalDailyTime >= limits.maxDailySessionTime + 5) {
           setTimeLimitReached(true);
-          endSession();
+          endSession(true);
         }
-        
-        // Check weekly limit
-        const totalWeeklyTime = settings.weeklyTimeUsed + Math.floor(newTime / 60);
-        if (totalWeeklyTime >= settings.maxWeeklySessionTime) {
+        const totalWeeklyTime = limits.weeklyTimeUsed + Math.floor(newTime / 60);
+        if (totalWeeklyTime >= limits.maxWeeklySessionTime) {
           setTimeLimitReached(true);
-          endSession();
+          endSession(true);
         }
       }, 1000);
     }
     return () => clearInterval(interval);
-  }, [sessionActive, timeLimitReached, warningShown]);
+  }, [sessionActive, timeLimitReached, warningShown, sessionTime, limits]);
 
-  // Generate math question
   const generateQuestion = (): MathQuestion => {
     const operations = selectedOperation === "both" 
       ? ["multiplication", "division"] as const
       : [selectedOperation];
-    
     const operation = operations[Math.floor(Math.random() * operations.length)];
-    
     let num1: number, num2: number, answer: number, question: string;
-    
     if (operation === "multiplication") {
-      // Adjust numbers based on difficulty
       const maxNum = Math.min(10 + selectedDifficulty * 2, 20);
       num1 = Math.floor(Math.random() * maxNum) + 1;
       num2 = Math.floor(Math.random() * maxNum) + 1;
       answer = num1 * num2;
       question = `${num1} × ${num2} = ?`;
     } else {
-      // Division - ensure clean division
       const maxNum = Math.min(10 + selectedDifficulty, 15);
       num2 = Math.floor(Math.random() * maxNum) + 1;
       const multiplier = Math.floor(Math.random() * maxNum) + 1;
@@ -109,7 +126,6 @@ export default function MathLearningPage() {
       answer = multiplier;
       question = `${num1} ÷ ${num2} = ?`;
     }
-    
     return {
       id: Math.random().toString(36).substr(2, 9),
       question,
@@ -119,74 +135,94 @@ export default function MathLearningPage() {
     };
   };
 
-  // Start new session
   const startSession = () => {
     setSessionActive(true);
-    setSessionStats({
-      questionsAsked: 0,
-      questionsCorrect: 0,
-      pointsEarned: 0,
-      timeElapsed: 0,
-    });
+    setSessionStats({ questionsAsked: 0, questionsCorrect: 0, pointsEarned: 0, timeElapsed: 0 });
     setSessionTime(0);
+    setQuestionResults([]);
     nextQuestion();
   };
 
-  // Get next question
   const nextQuestion = () => {
+    if (questionQueue.length > 0) {
+      const [next, ...rest] = questionQueue;
+      setQuestionQueue(rest);
+      setCurrentQuestion(next);
+      setUserAnswer("");
+      setFeedback({ type: null, message: "" });
+      setIsSubmitting(false);
+      return;
+    }
     setCurrentQuestion(generateQuestion());
     setUserAnswer("");
     setFeedback({ type: null, message: "" });
     setIsSubmitting(false);
   };
 
-  // Submit answer
   const submitAnswer = () => {
     if (!currentQuestion || !userAnswer.trim()) return;
-    
     setIsSubmitting(true);
     const userNum = parseInt(userAnswer);
     const isCorrect = userNum === currentQuestion.answer;
-    
-    // Calculate points based on difficulty and speed
     const basePoints = currentQuestion.difficulty * 10;
-    const speedBonus = Math.max(0, 30 - Math.min(sessionTime, 30)); // Bonus for answering quickly
+    const speedBonus = Math.max(0, 30 - Math.min(sessionTime, 30));
     const pointsEarned = isCorrect ? basePoints + speedBonus : 0;
-    
     setFeedback({
       type: isCorrect ? "correct" : "incorrect",
       message: isCorrect 
         ? `Correct! +${pointsEarned} points ${speedBonus > 0 ? `(Speed bonus: +${speedBonus})` : ""}`
         : `Incorrect. The answer is ${currentQuestion.answer}`,
     });
-    
     setSessionStats(prev => ({
       questionsAsked: prev.questionsAsked + 1,
       questionsCorrect: prev.questionsCorrect + (isCorrect ? 1 : 0),
       pointsEarned: prev.pointsEarned + pointsEarned,
       timeElapsed: prev.timeElapsed,
     }));
-    
-    // Auto-advance after delay
-    setTimeout(() => {
-      nextQuestion();
-    }, 2000);
+    setQuestionResults((prev) => [
+      ...prev,
+      {
+        difficulty: currentQuestion.difficulty,
+        isCorrect,
+        secondsElapsed: sessionTime,
+      },
+    ]);
+    setTimeout(() => { nextQuestion(); }, 2000);
   };
 
-  // End session
-  const endSession = () => {
+  const postSession = async () => {
+    if (!currentQuestion) return;
+    const minutes = Math.max(1, Math.round(sessionTime / 60));
+    try {
+      await fetch("/api/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          subject: "MATH",
+          topic: currentQuestion.operation,
+          duration: minutes,
+          questionsAsked: sessionStats.questionsAsked,
+          questionsCorrect: sessionStats.questionsCorrect,
+          pointsEarned: sessionStats.pointsEarned,
+          completedAt: new Date().toISOString(),
+          questionResults,
+        }),
+      });
+    } catch {}
+  };
+
+  const endSession = (auto = false) => {
     setSessionActive(false);
+    postSession();
     setCurrentQuestion(null);
   };
 
-  // Format time
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  // Calculate accuracy
   const accuracy = sessionStats.questionsAsked > 0 
     ? Math.round((sessionStats.questionsCorrect / sessionStats.questionsAsked) * 100)
     : 0;
@@ -353,32 +389,30 @@ export default function MathLearningPage() {
                     <div className="text-sm text-gray-600">Time</div>
                   </div>
                 </div>
-                
                 {/* Time Limit Warning */}
                 {warningShown && !timeLimitReached && (
                   <div className="mt-4 p-3 bg-yellow-100 border border-yellow-200 rounded-lg">
                     <div className="flex items-center gap-2 text-yellow-800">
                       <Clock className="w-4 h-4" />
                       <span className="text-sm font-medium">
-                        Time limit warning: You have {settings.maxDailySessionTime - (settings.dailyTimeUsed + Math.floor(sessionTime / 60))} minutes left today
+                        Time limit warning: You have {limits.maxDailySessionTime - (limits.dailyTimeUsed + Math.floor(sessionTime / 60))} minutes left today
                       </span>
                     </div>
                   </div>
                 )}
-                
                 {/* Time Limits Info */}
                 <div className="mt-4 grid grid-cols-2 gap-4 text-xs text-gray-600">
                   <div className="text-center">
-                    <div>Daily: {settings.dailyTimeUsed + Math.floor(sessionTime / 60)}/{settings.maxDailySessionTime} min</div>
+                    <div>Daily: {limits.dailyTimeUsed + Math.floor(sessionTime / 60)}/{limits.maxDailySessionTime} min</div>
                     <Progress 
-                      value={((settings.dailyTimeUsed + Math.floor(sessionTime / 60)) / settings.maxDailySessionTime) * 100} 
+                      value={((limits.dailyTimeUsed + Math.floor(sessionTime / 60)) / limits.maxDailySessionTime) * 100} 
                       className="h-1 mt-1" 
                     />
                   </div>
                   <div className="text-center">
-                    <div>Weekly: {settings.weeklyTimeUsed + Math.floor(sessionTime / 60)}/{settings.maxWeeklySessionTime} min</div>
+                    <div>Weekly: {limits.weeklyTimeUsed + Math.floor(sessionTime / 60)}/{limits.maxWeeklySessionTime} min</div>
                     <Progress 
-                      value={((settings.weeklyTimeUsed + Math.floor(sessionTime / 60)) / settings.maxWeeklySessionTime) * 100} 
+                      value={((limits.weeklyTimeUsed + Math.floor(sessionTime / 60)) / limits.maxWeeklySessionTime) * 100} 
                       className="h-1 mt-1" 
                     />
                   </div>
@@ -414,7 +448,6 @@ export default function MathLearningPage() {
                       disabled={isSubmitting}
                     />
                   </div>
-                  
                   {feedback.message && (
                     <div className={`text-center p-4 rounded-lg ${
                       feedback.type === "correct" 
@@ -431,7 +464,6 @@ export default function MathLearningPage() {
                       </div>
                     </div>
                   )}
-                  
                   <div className="flex justify-center gap-4">
                     <Button 
                       onClick={submitAnswer}
@@ -442,7 +474,7 @@ export default function MathLearningPage() {
                     </Button>
                     <Button 
                       variant="outline"
-                      onClick={endSession}
+                      onClick={() => endSession(false)}
                       className="border-red-200 text-red-600 hover:bg-red-50"
                     >
                       End Session
