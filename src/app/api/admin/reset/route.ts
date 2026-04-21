@@ -1,14 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { unauthorizedResponse, isParentAuthed } from "@/lib/auth";
+import { isParentAuthed, unauthorizedResponse } from "@/lib/auth";
+import { getActiveChildIdFromRequest } from "@/lib/active-child";
 import { db } from "@/lib/db";
-
-async function getChildIdFromReq(req: NextRequest, bodyChildId?: string | null) {
-  if (bodyChildId) return bodyChildId;
-  const cookieId = req.cookies.get("active_child_id")?.value;
-  if (cookieId) return cookieId;
-  const child = await db.child.findFirst({ orderBy: { createdAt: "asc" } });
-  return child?.id || null;
-}
 
 export async function POST(req: NextRequest) {
   try {
@@ -19,7 +12,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { childId: bodyChildId, resetType = "all" } = body;
     
-    const childId = await getChildIdFromReq(req, bodyChildId);
+    const childId = await getActiveChildIdFromRequest(req, bodyChildId);
     if (!childId) {
       return NextResponse.json({ error: "No child ID provided" }, { status: 400 });
     }

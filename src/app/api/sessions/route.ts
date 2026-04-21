@@ -1,12 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Subject } from "@prisma/client";
+import { getActiveChildIdFromRequest } from "@/lib/active-child";
 import { db } from "@/lib/db";
 import { calculateSessionOutcome, normalizeQuestionResults } from "@/lib/scoring";
-import { Subject } from "@prisma/client";
-
-async function getDefaultChildId() {
-  const child = await db.child.findFirst({ orderBy: { createdAt: "asc" } });
-  return child?.id || null;
-}
 
 function parseFormUrlEncoded(bodyText: string): Record<string, any> {
   const params = new URLSearchParams(bodyText);
@@ -35,15 +31,8 @@ async function parseBody(req: NextRequest): Promise<any> {
   }
 }
 
-async function getDefaultChildIdFromReq(req: NextRequest) {
-  const cookieId = req.cookies.get("active_child_id")?.value;
-  if (cookieId) return cookieId;
-  return getDefaultChildId();
-}
-
 export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
-  const childId = searchParams.get("childId") || (await getDefaultChildIdFromReq(req));
+  const childId = await getActiveChildIdFromRequest(req);
   if (!childId) return NextResponse.json({ sessions: [] });
 
   const sessions = await db.learningSession.findMany({
@@ -69,7 +58,7 @@ export async function POST(req: NextRequest) {
       questionResults,
     } = body || {};
 
-    const childId = bodyChildId || (await getDefaultChildIdFromReq(req));
+    const childId = await getActiveChildIdFromRequest(req, bodyChildId);
     if (!childId) return NextResponse.json({ error: "No child found" }, { status: 400 });
 
     const validSubject = String(subject).toUpperCase() === "MATH" ? Subject.MATH : Subject.ENGLISH;

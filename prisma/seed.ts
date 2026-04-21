@@ -1,8 +1,27 @@
 import { PrismaClient, Subject, MathOperation, EnglishQuestionType } from "@prisma/client";
 
+import { avatarCatalogSeed, rewardCatalogSeed } from "./catalog-data";
+import { curriculumEnglishQuestions, curriculumMathQuestions } from "../src/lib/curriculum-question-bank";
+
 const prisma = new PrismaClient();
 
 async function main() {
+  for (const item of avatarCatalogSeed) {
+    await prisma.avatarItemCatalog.upsert({
+      where: { id: item.id },
+      update: item,
+      create: item,
+    });
+  }
+
+  for (const reward of rewardCatalogSeed) {
+    await prisma.rewardCatalog.upsert({
+      where: { id: reward.id },
+      update: reward,
+      create: reward,
+    });
+  }
+
   // Create parent if not exists
   let parent = await prisma.parent.findFirst();
   if (!parent) {
@@ -39,6 +58,7 @@ async function main() {
       data: {
         name: "Emma",
         age: 9,
+        gradeLevel: 4,
         parentId: parent.id,
         totalPoints: 150,
         currentStreak: 5,
@@ -51,6 +71,19 @@ async function main() {
         equippedBackground: "bg1",
       },
     });
+  } else {
+    child = await prisma.child.update({
+      where: { id: child.id },
+      data: {
+        gradeLevel: child.gradeLevel ?? 4,
+        equippedHairStyle: child.equippedHairStyle === "default" ? "hair1" : (child.equippedHairStyle ?? "hair1"),
+        equippedShirt: child.equippedShirt === "blue_tee" ? "shirt1" : (child.equippedShirt ?? "shirt1"),
+        equippedPants: child.equippedPants === "jeans" ? "pants1" : (child.equippedPants ?? "pants1"),
+        equippedShoes: child.equippedShoes === "sneakers" ? "shoes1" : (child.equippedShoes ?? "shoes1"),
+        equippedAccessory: child.equippedAccessory ?? "none",
+        equippedBackground: child.equippedBackground === "default" ? "bg1" : (child.equippedBackground ?? "bg1"),
+      },
+    });
   }
 
   // Seed initial unlocked items for the child
@@ -58,15 +91,32 @@ async function main() {
   if (unlockedCount === 0) {
     await prisma.unlockedItem.createMany({
       data: [
-        { childId: child.id, itemId: "hair1", itemType: "hair_style" },
-        { childId: child.id, itemId: "shirt1", itemType: "shirt" },
-        { childId: child.id, itemId: "pants1", itemType: "pants" },
-        { childId: child.id, itemId: "shoes1", itemType: "shoes" },
-        { childId: child.id, itemId: "bg1", itemType: "background" },
-        { childId: child.id, itemId: "hair2", itemType: "hair_style" }, // Unlock Curly Locks
-        { childId: child.id, itemId: "shirt2", itemType: "shirt" },     // Unlock Pink Shirt
-        { childId: child.id, itemId: "acc1", itemType: "accessory" },   // Unlock Cool Glasses
+        { childId: child.id, itemId: "hair1" },
+        { childId: child.id, itemId: "shirt1" },
+        { childId: child.id, itemId: "pants1" },
+        { childId: child.id, itemId: "shoes1" },
+        { childId: child.id, itemId: "none" },
+        { childId: child.id, itemId: "bg1" },
+        { childId: child.id, itemId: "hair2" },
+        { childId: child.id, itemId: "shirt2" },
+        { childId: child.id, itemId: "acc1" },
       ],
+    });
+  }
+
+  for (const defaultItemId of ["hair1", "shirt1", "pants1", "shoes1", "none", "bg1"]) {
+    await prisma.unlockedItem.upsert({
+      where: {
+        childId_itemId: {
+          childId: child.id,
+          itemId: defaultItemId,
+        },
+      },
+      update: {},
+      create: {
+        childId: child.id,
+        itemId: defaultItemId,
+      },
     });
   }
 
@@ -98,26 +148,69 @@ async function main() {
   }
 
   // Seed question banks
-  const mathCount = await prisma.mathQuestion.count();
-  if (mathCount === 0) {
-    await prisma.mathQuestion.createMany({
-      data: [
-        { question: "3 × 4 = ?", answer: 12, operation: MathOperation.MULTIPLICATION, difficulty: 1, topic: "multiplication" },
-        { question: "6 × 7 = ?", answer: 42, operation: MathOperation.MULTIPLICATION, difficulty: 2, topic: "multiplication" },
-        { question: "56 ÷ 7 = ?", answer: 8, operation: MathOperation.DIVISION, difficulty: 2, topic: "division" },
-        { question: "81 ÷ 9 = ?", answer: 9, operation: MathOperation.DIVISION, difficulty: 2, topic: "division" },
-      ],
+  for (const question of curriculumMathQuestions) {
+    await prisma.mathQuestion.upsert({
+      where: { seedKey: question.seedKey },
+      update: {
+        question: question.question,
+        answer: question.answer,
+        remainder: question.remainder ?? null,
+        operation: question.operation,
+        difficulty: question.difficulty,
+        topic: question.topic,
+        gradeMin: question.gradeMin,
+        gradeMax: question.gradeMax,
+        curriculumCode: question.curriculumCode,
+        curriculumOutcome: question.curriculumOutcome,
+        curriculumSourceUrl: question.curriculumSourceUrl,
+      },
+      create: {
+        seedKey: question.seedKey,
+        question: question.question,
+        answer: question.answer,
+        remainder: question.remainder ?? null,
+        operation: question.operation,
+        difficulty: question.difficulty,
+        topic: question.topic,
+        gradeMin: question.gradeMin,
+        gradeMax: question.gradeMax,
+        curriculumCode: question.curriculumCode,
+        curriculumOutcome: question.curriculumOutcome,
+        curriculumSourceUrl: question.curriculumSourceUrl,
+      },
     });
   }
 
-  const engCount = await prisma.englishQuestion.count();
-  if (engCount === 0) {
-    await prisma.englishQuestion.createMany({
-      data: [
-        { question: "Which sentence is correct?", options: JSON.stringify(["Me and my friend went to the park.", "My friend and I went to the park.", "My friend and me went to the park.", "I and my friend went to the park."]), correctAnswer: "My friend and I went to the park.", questionType: EnglishQuestionType.GRAMMAR, difficulty: 1, topic: "grammar" },
-        { question: "Choose the correct verb: 'She ___ to school every day.'", options: JSON.stringify(["go", "goes", "going", "gone"]) , correctAnswer: "goes", questionType: EnglishQuestionType.GRAMMAR, difficulty: 1, topic: "grammar" },
-        { question: "What does 'enormous' mean?", options: JSON.stringify(["Very small", "Very large", "Very fast", "Very slow"]) , correctAnswer: "Very large", questionType: EnglishQuestionType.VOCABULARY, difficulty: 1, topic: "vocabulary" },
-      ],
+  for (const question of curriculumEnglishQuestions) {
+    await prisma.englishQuestion.upsert({
+      where: { seedKey: question.seedKey },
+      update: {
+        question: question.question,
+        options: JSON.stringify(question.options),
+        correctAnswer: question.correctAnswer,
+        questionType: question.questionType,
+        difficulty: question.difficulty,
+        topic: question.topic,
+        gradeMin: question.gradeMin,
+        gradeMax: question.gradeMax,
+        curriculumCode: question.curriculumCode,
+        curriculumOutcome: question.curriculumOutcome,
+        curriculumSourceUrl: question.curriculumSourceUrl,
+      },
+      create: {
+        seedKey: question.seedKey,
+        question: question.question,
+        options: JSON.stringify(question.options),
+        correctAnswer: question.correctAnswer,
+        questionType: question.questionType,
+        difficulty: question.difficulty,
+        topic: question.topic,
+        gradeMin: question.gradeMin,
+        gradeMax: question.gradeMax,
+        curriculumCode: question.curriculumCode,
+        curriculumOutcome: question.curriculumOutcome,
+        curriculumSourceUrl: question.curriculumSourceUrl,
+      },
     });
   }
   console.log("Seed complete");

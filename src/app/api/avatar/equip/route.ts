@@ -1,43 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
+
 import { db } from "@/lib/db";
-import { getAvatarItemDefinition } from "@/lib/game-config";
-import { cookies } from 'next/headers';
-
-const COOKIE = "active_child_id";
-
-async function getChildIdFromReq(req: NextRequest) {
-  let childId = req.nextUrl.searchParams.get('childId');
-  if (childId) return childId;
-  
-  // Try from cookie
-  const cookieStore = await cookies();
-  childId = cookieStore.get(COOKIE)?.value ?? null;
-  if (childId) return childId;
-
-  // Fallback to first child if no cookie
-  const defaultChild = await db.child.findFirst({ orderBy: { createdAt: "asc" } });
-  if (defaultChild) return defaultChild.id;
-
-  return null;
-}
+import { getActiveChildIdFromRequest } from "@/lib/active-child";
 
 export async function POST(req: NextRequest) {
   try {
-    const childId = await getChildIdFromReq(req);
+    const body = await req.json();
+    const { itemId } = body;
+    const childId = await getActiveChildIdFromRequest(req);
+
     if (!childId) {
       return NextResponse.json({ error: "No active child found" }, { status: 400 });
     }
-
-    const body = await req.json();
-    const { itemId } = body;
-
     if (!itemId || typeof itemId !== "string") {
       return NextResponse.json({ error: "Invalid item ID" }, { status: 400 });
     }
 
-    const item = getAvatarItemDefinition(itemId);
+    const item = await db.avatarItemCatalog.findUnique({
+      where: { id: itemId },
+    });
+
     if (!item) {
       return NextResponse.json({ error: "Unknown avatar item" }, { status: 400 });
+    }
+    if (!item.isActive) {
+      return NextResponse.json({ error: "Avatar item is not available" }, { status: 400 });
     }
 
     // Verify if the item is unlocked for this child
@@ -56,12 +43,12 @@ export async function POST(req: NextRequest) {
 
     const updateData: { [key: string]: string } = {};
     switch (item.type) {
-      case "hair_style": updateData.equippedHairStyle = itemId; break;
-      case "shirt": updateData.equippedShirt = itemId; break;
-      case "pants": updateData.equippedPants = itemId; break;
-      case "shoes": updateData.equippedShoes = itemId; break;
-      case "accessory": updateData.equippedAccessory = itemId; break;
-      case "background": updateData.equippedBackground = itemId; break;
+      case "HAIR_STYLE": updateData.equippedHairStyle = itemId; break;
+      case "SHIRT": updateData.equippedShirt = itemId; break;
+      case "PANTS": updateData.equippedPants = itemId; break;
+      case "SHOES": updateData.equippedShoes = itemId; break;
+      case "ACCESSORY": updateData.equippedAccessory = itemId; break;
+      case "BACKGROUND": updateData.equippedBackground = itemId; break;
       default: return NextResponse.json({ error: "Invalid item type" }, { status: 400 });
     }
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
 import { PARENT_AUTH_COOKIE, parentAuthCookieOptions } from "@/lib/auth";
+import { db } from "@/lib/db";
+import { getCurrentParent } from "@/lib/parent-scope";
 import crypto from "crypto";
 
 function sha256Hex(v: string) {
@@ -8,7 +9,7 @@ function sha256Hex(v: string) {
 }
 
 async function getSettings() {
-  const parent = await db.parent.findFirst({ orderBy: { createdAt: "asc" } });
+  const parent = await getCurrentParent();
   if (!parent) return null;
   const settings = await db.settings.findFirst({ where: { parentId: parent.id } });
   return settings;

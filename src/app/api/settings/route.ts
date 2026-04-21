@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { unauthorizedResponse, isParentAuthed } from "@/lib/auth";
+import { isParentAuthed, unauthorizedResponse } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { getCurrentParentId } from "@/lib/parent-scope";
 import crypto from "crypto";
 
 function hashPassword(pw: string): string {
@@ -8,13 +9,8 @@ function hashPassword(pw: string): string {
   return `sha256:${h}`;
 }
 
-async function getDefaultParentId() {
-  const parent = await db.parent.findFirst({ orderBy: { createdAt: "asc" } });
-  return parent?.id || null;
-}
-
 export async function GET() {
-  const parentId = await getDefaultParentId();
+  const parentId = await getCurrentParentId();
   if (!parentId) return NextResponse.json({ ok: true, settings: null });
   const settings = await db.settings.findFirst({ where: { parentId } });
   if (!settings) return NextResponse.json({ ok: true, settings: null });
@@ -28,7 +24,7 @@ export async function PUT(req: NextRequest) {
       return unauthorizedResponse();
     }
 
-    const parentId = await getDefaultParentId();
+    const parentId = await getCurrentParentId();
     if (!parentId) return NextResponse.json({ error: "No parent found" }, { status: 400 });
     const data = await req.json();
 

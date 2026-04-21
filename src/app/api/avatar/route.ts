@@ -1,38 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
+
 import { db } from "@/lib/db";
-import { cookies } from 'next/headers';
-
-const COOKIE = "active_child_id";
-
-async function getChildIdFromReq(req: NextRequest) {
-  let childId = req.nextUrl.searchParams.get('childId');
-  if (childId) return childId;
-  
-  // Try from cookie
-  const cookieStore = await cookies();
-  childId = cookieStore.get(COOKIE)?.value ?? null;
-  if (childId) return childId;
-
-  // Fallback to first child if no cookie
-  const defaultChild = await db.child.findFirst({ orderBy: { createdAt: "asc" } });
-  if (defaultChild) return defaultChild.id;
-
-  return null;
-}
+import { getActiveChildIdFromRequest } from "@/lib/active-child";
+import { toAvatarCatalogItemDto } from "@/lib/catalog";
 
 export async function GET(req: NextRequest) {
   try {
-    const childId = await getChildIdFromReq(req);
+    const childId = await getActiveChildIdFromRequest(req);
     if (!childId) {
       return NextResponse.json({ error: "No active child found" }, { status: 400 });
     }
 
-    const child = await db.child.findUnique({
-      where: { id: childId },
-      include: {
-        unlockedItems: true,
-      },
-    });
+    const [child, catalog] = await Promise.all([
+      db.child.findUnique({
+        where: { id: childId },
+        include: {
+          unlockedItems: true,
+        },
+      }),
+      db.avatarItemCatalog.findMany({
+        where: { isActive: true },
+        orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+      }),
+    ]);
 
     if (!child) {
       return NextResponse.json({ error: "Child not found" }, { status: 404 });
@@ -51,6 +41,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ 
       ok: true, 
+      catalog: catalog.map(toAvatarCatalogItemDto),
       equippedAvatar,
       unlockedItemIds,
       childTotalPoints: child.totalPoints,
