@@ -8,6 +8,8 @@ const dev = process.env.NODE_ENV !== 'production';
 const currentPort = 3000;
 const hostname = '0.0.0.0';
 
+let httpServer: ReturnType<typeof createServer> | null = null;
+
 // Custom server with Socket.IO integration
 async function createCustomServer() {
   try {
@@ -30,6 +32,7 @@ async function createCustomServer() {
       }
       handle(req, res);
     });
+    httpServer = server;
 
     // Setup Socket.IO
     const io = new Server(server, {
@@ -41,6 +44,39 @@ async function createCustomServer() {
     });
 
     setupSocket(io);
+
+    // Graceful shutdown
+    const shutdown = (signal: string) => {
+      console.log(`\n> Received ${signal}, shutting down gracefully...`);
+      if (httpServer) {
+        httpServer.close(() => {
+          console.log('> HTTP server closed');
+          process.exit(0);
+        });
+        
+        // Force close after 10 seconds if graceful shutdown fails
+        setTimeout(() => {
+          console.log('> Force closing server...');
+          process.exit(1);
+        }, 10000);
+      } else {
+        process.exit(0);
+      }
+    };
+    
+    process.on('SIGTERM', () => shutdown('SIGTERM'));
+    process.on('SIGINT', () => shutdown('SIGINT'));
+    
+    // Handle uncaught exceptions
+    process.on('uncaughtException', (err) => {
+      console.error('> Uncaught Exception:', err);
+      shutdown('uncaughtException');
+    });
+    
+    process.on('unhandledRejection', (reason, promise) => {
+      console.error('> Unhandled Rejection at:', promise, 'reason:', reason);
+      shutdown('unhandledRejection');
+    });
 
     // Start the server
     server.listen(currentPort, hostname, () => {

@@ -144,6 +144,7 @@ test-report.xml
 # Build artifacts
 *.tar.gz
 *.zip
+*.tsbuildinfo
 
 # Local development files
 .local

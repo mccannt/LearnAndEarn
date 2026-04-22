@@ -1,489 +1,649 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+
+import Link from "next/link";
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  XAxis,
+  YAxis,
+} from "recharts";
+import {
+  AlertCircle,
+  ArrowLeft,
+  Award,
+  BarChart3,
+  BookOpen,
+  Calculator,
+  Clock,
+  Target,
+  TrendingUp,
+  Trophy,
+} from "lucide-react";
+
+import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
+import { LearnerWorkspaceShell } from "@/components/learner-workspace-shell";
+import { MotionGroup, MotionItem } from "@/components/learner-motion";
+import { LearnerEmptyState, LearnerLoadingGrid } from "@/components/learner-state";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowLeft, BarChart3, TrendingUp, Trophy, Target, Clock, Star, BookOpen, Calculator, Calendar, Award } from "lucide-react";
-import Link from "next/link";
 
-interface ProgressData {
+type SubjectSummary = {
   subject: string;
   progress: number;
   accuracy: number;
   sessions: number;
   timeSpent: number;
-  lastSession: string;
-}
+  lastSession?: string;
+};
 
-interface WeeklyData {
-  week: string;
+type WeeklyPoint = {
+  day: string;
   math: number;
   english: number;
-  total: number;
+};
+
+type SessionSummary = {
+  id: string;
+  subject: "MATH" | "ENGLISH";
+  topic: string;
+  duration: number;
+  questionsAsked: number;
+  questionsCorrect: number;
+  pointsEarned: number;
+  completedAt: string;
+};
+
+type ProgressPayload = {
+  child: { currentStreak: number } | null;
+  subjects: SubjectSummary[];
+  weekly: WeeklyPoint[];
+  totals: {
+    totalSessions: number;
+    totalTime: number;
+    totalPoints: number;
+    averageAccuracy: number;
+  };
+  recent: SessionSummary[];
+};
+
+const progressPanelClass =
+  "overflow-hidden rounded-[1.75rem] border border-white/80 bg-white/75 shadow-[0_24px_60px_rgba(95,111,255,0.12)] backdrop-blur-xl dark:border-white/10 dark:bg-slate-950/45 dark:shadow-[0_24px_60px_rgba(2,6,23,0.35)]";
+
+const weeklyChartConfig = {
+  math: {
+    label: "Math",
+    color: "#4f7cff",
+  },
+  english: {
+    label: "English",
+    color: "#ff6f92",
+  },
+} satisfies ChartConfig;
+
+const subjectChartConfig = {
+  progress: {
+    label: "Progress",
+    color: "#7c5cff",
+  },
+  accuracy: {
+    label: "Accuracy",
+    color: "#12b981",
+  },
+} satisfies ChartConfig;
+
+function formatDate(dateString: string) {
+  return new Date(dateString).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 }
 
-interface Achievement {
-  id: string;
-  title: string;
-  description: string;
-  icon: string;
-  earned: boolean;
-  date?: string;
-  progress?: number;
+function formatMinutes(totalMinutes: number) {
+  return `${Math.floor((totalMinutes || 0) / 60)}h ${(totalMinutes || 0) % 60}m`;
 }
 
 export default function ProgressPage() {
-  const [selectedPeriod, setSelectedPeriod] = useState<"week" | "month" | "all">("month");
+  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<ProgressPayload | null>(null);
+  const [hasError, setHasError] = useState(false);
 
-  // Mock progress data
-  const subjectProgress: ProgressData[] = [
-    { subject: "Math", progress: 65, accuracy: 82, sessions: 12, timeSpent: 180, lastSession: "2024-01-15" },
-    { subject: "English", progress: 45, accuracy: 78, sessions: 8, timeSpent: 120, lastSession: "2024-01-14" },
-    { subject: "Reading", progress: 75, accuracy: 88, sessions: 4, timeSpent: 60, lastSession: "2024-01-12" }
-  ];
+  useEffect(() => {
+    setLoading(true);
+    setHasError(false);
+    fetch("/api/progress", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error("Unable to load progress");
+        }
 
-  const weeklyProgress: WeeklyData[] = [
-    { week: "Week 1", math: 45, english: 30, total: 75 },
-    { week: "Week 2", math: 60, english: 45, total: 105 },
-    { week: "Week 3", math: 75, english: 60, total: 135 },
-    { week: "Week 4", math: 90, english: 75, total: 165 }
-  ];
+        return response.json();
+      })
+      .then((json) => {
+        setData(json?.data || null);
+      })
+      .catch(() => {
+        setData(null);
+        setHasError(true);
+      })
+      .finally(() => setLoading(false));
+  }, []);
 
-  const achievements: Achievement[] = [
-    { id: "first_session", title: "First Steps", description: "Complete your first learning session", icon: "🎯", earned: true, date: "2024-01-01" },
-    { id: "week_streak", title: "Week Warrior", description: "Learn for 7 days in a row", icon: "🔥", earned: true, date: "2024-01-07" },
-    { id: "math_master", title: "Math Master", description: "Score 90%+ in 10 math sessions", icon: "🧮", earned: true, date: "2024-01-10" },
-    { id: "english_expert", title: "English Expert", description: "Score 90%+ in 10 english sessions", icon: "📚", earned: false, progress: 60 },
-    { id: "time_champion", title: "Time Champion", description: "Spend 10 hours learning", icon: "⏰", earned: false, progress: 75 },
-    { id: "perfect_week", title: "Perfect Week", description: "100% accuracy for a week", icon: "💯", earned: false, progress: 30 },
-    { id: "avatar_collector", title: "Avatar Collector", description: "Unlock 20 avatar items", icon: "👗", earned: false, progress: 60 },
-    { id: "point_master", title: "Point Master", description: "Earn 1000 points", icon: "⭐", earned: false, progress: 15 }
-  ];
+  const subjects = data?.subjects ?? [];
+  const totals = data?.totals ?? { totalSessions: 0, totalTime: 0, totalPoints: 0, averageAccuracy: 0 };
+  const weekly = data?.weekly ?? [];
+  const recent = data?.recent ?? [];
 
-  const learningStats = {
-    totalSessions: 24,
-    totalTime: 360, // minutes
-    totalPoints: 150,
-    currentStreak: 5,
-    longestStreak: 12,
-    averageAccuracy: 85,
-    favoriteSubject: "Math"
-  };
+  const weeklyChartData = weekly.map((point) => ({
+    day: point.day.slice(5),
+    math: point.math,
+    english: point.english,
+    total: point.math + point.english,
+  }));
 
-  const getProgressColor = (progress: number) => {
-    if (progress >= 80) return "text-green-600";
-    if (progress >= 60) return "text-yellow-600";
-    return "text-red-600";
-  };
-
-  const getProgressBgColor = (progress: number) => {
-    if (progress >= 80) return "bg-green-100";
-    if (progress >= 60) return "bg-yellow-100";
-    return "bg-red-100";
-  };
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', { 
-      month: 'short', 
-      day: 'numeric',
-      year: 'numeric'
-    });
-  };
-
-  const earnedAchievements = achievements.filter(a => a.earned);
-  const inProgressAchievements = achievements.filter(a => !a.earned && a.progress !== undefined);
+  const subjectChartData = subjects.map((subject) => ({
+    subject: subject.subject,
+    progress: subject.progress,
+    accuracy: subject.accuracy,
+  }));
+  const strongestSubject = [...subjectChartData].sort((left, right) => right.accuracy - left.accuracy)[0]?.subject;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-50 to-purple-50 p-4 md:p-8">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <header className="flex items-center justify-between mb-8">
-          <div className="flex items-center gap-4">
-            <Link href="/">
-              <Button variant="outline" size="icon" className="border-indigo-200">
-                <ArrowLeft className="w-4 h-4" />
-              </Button>
-            </Link>
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-gradient-to-r from-indigo-500 to-purple-500 rounded-lg flex items-center justify-center">
-                <BarChart3 className="w-5 h-5 text-white" />
+    <LearnerWorkspaceShell
+      currentSection="progress"
+      title="Progress & Statistics"
+      description="See how your streak, accuracy, and recent sessions are building up across both subjects."
+      icon={<BarChart3 className="h-6 w-6" />}
+      accent="sky"
+      actions={
+        <Button asChild variant="outline" className="rounded-full border-white/80 bg-white/70 dark:border-white/10 dark:bg-white/5">
+          <Link href="/">
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Home
+          </Link>
+        </Button>
+      }
+      metrics={[
+        { label: "Sessions", value: `${totals.totalSessions}` },
+        { label: "Points", value: `${totals.totalPoints}` },
+        { label: "Accuracy", value: `${totals.averageAccuracy}%` },
+        { label: "Streak", value: `${data?.child?.currentStreak ?? 0} days` },
+      ]}
+    >
+      <div className="mx-auto max-w-7xl">
+        {loading ? (
+          <div className="space-y-6">
+            <LearnerLoadingGrid />
+            <div className="grid gap-6 lg:grid-cols-2">
+              <div className={progressPanelClass}>
+                <div className="space-y-4 p-6">
+                  <div className="h-5 w-40 animate-pulse rounded-full bg-slate-200 dark:bg-slate-800" />
+                  <div className="h-60 animate-pulse rounded-[1.5rem] bg-slate-200 dark:bg-slate-800" />
+                </div>
               </div>
-              <div>
-                <h1 className="text-2xl font-bold text-gray-800">Progress & Statistics</h1>
-                <p className="text-gray-600">Track your learning journey and achievements</p>
+              <div className={progressPanelClass}>
+                <div className="space-y-4 p-6">
+                  <div className="h-5 w-40 animate-pulse rounded-full bg-slate-200 dark:bg-slate-800" />
+                  <div className="h-60 animate-pulse rounded-[1.5rem] bg-slate-200 dark:bg-slate-800" />
+                </div>
               </div>
             </div>
           </div>
-        </header>
-
-        <Tabs defaultValue="overview" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-4">
-            <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="subjects">Subjects</TabsTrigger>
-            <TabsTrigger value="achievements">Achievements</TabsTrigger>
-            <TabsTrigger value="history">History</TabsTrigger>
-          </TabsList>
-
-          {/* Overview Tab */}
-          <TabsContent value="overview" className="space-y-6">
-            {/* Key Stats */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg">
-                <CardContent className="p-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm text-gray-600">Total Sessions</p>
-                      <p className="text-2xl font-bold text-indigo-600">{learningStats.totalSessions}</p>
-                    </div>
-                    <BookOpen className="w-8 h-8 text-indigo-500" />
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg">
-                <CardContent className="p-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm text-gray-600">Time Spent</p>
-                      <p className="text-2xl font-bold text-purple-600">{Math.floor(learningStats.totalTime / 60)}h {learningStats.totalTime % 60}m</p>
-                    </div>
-                    <Clock className="w-8 h-8 text-purple-500" />
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg">
-                <CardContent className="p-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm text-gray-600">Average Accuracy</p>
-                      <p className="text-2xl font-bold text-green-600">{learningStats.averageAccuracy}%</p>
-                    </div>
-                    <Target className="w-8 h-8 text-green-500" />
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg">
-                <CardContent className="p-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm text-gray-600">Current Streak</p>
-                      <p className="text-2xl font-bold text-orange-600">{learningStats.currentStreak} days 🔥</p>
-                    </div>
-                    <Trophy className="w-8 h-8 text-orange-500" />
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* Weekly Progress Chart */}
-            <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg">
-              <CardHeader>
-                <CardTitle className="text-xl text-gray-800">Weekly Progress</CardTitle>
-                <CardDescription className="text-gray-600">
-                  Your learning time over the past few weeks
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {weeklyProgress.map((week) => (
-                    <div key={week.week} className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="font-medium text-gray-800">{week.week}</span>
-                        <span className="text-sm text-gray-600">{week.total} minutes</span>
-                      </div>
-                      <div className="flex gap-2">
-                        <div className="flex-1">
-                          <div className="flex justify-between text-xs text-gray-500 mb-1">
-                            <span>Math: {week.math}m</span>
-                            <span>{Math.round((week.math / 120) * 100)}%</span>
-                          </div>
-                          <Progress value={(week.math / 120) * 100} className="h-2" />
-                        </div>
-                        <div className="flex-1">
-                          <div className="flex justify-between text-xs text-gray-500 mb-1">
-                            <span>English: {week.english}m</span>
-                            <span>{Math.round((week.english / 120) * 100)}%</span>
-                          </div>
-                          <Progress value={(week.english / 120) * 100} className="h-2" />
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Recent Achievements */}
-            <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg">
-              <CardHeader>
-                <CardTitle className="text-xl text-gray-800">Recent Achievements</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {earnedAchievements.slice(0, 4).map((achievement) => (
-                    <div key={achievement.id} className="flex items-center gap-3 p-3 bg-gradient-to-r from-yellow-50 to-orange-50 rounded-lg">
-                      <div className="text-2xl">{achievement.icon}</div>
-                      <div className="flex-1">
-                        <div className="font-semibold text-gray-800">{achievement.title}</div>
-                        <div className="text-sm text-gray-600">{achievement.description}</div>
-                        <div className="text-xs text-gray-500">{formatDate(achievement.date!)}</div>
-                      </div>
-                      <Award className="w-5 h-5 text-yellow-500" />
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Subjects Tab */}
-          <TabsContent value="subjects" className="space-y-6">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {subjectProgress.map((subject) => (
-                <Card key={subject.subject} className="bg-white/80 backdrop-blur-sm border-0 shadow-lg">
-                  <CardHeader>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${
-                          subject.subject === "Math" ? "bg-blue-100" : 
-                          subject.subject === "English" ? "bg-pink-100" : "bg-green-100"
-                        }`}>
-                          {subject.subject === "Math" ? 
-                            <Calculator className="w-6 h-6 text-blue-600" /> : 
-                            subject.subject === "English" ? 
-                            <BookOpen className="w-6 h-6 text-pink-600" /> :
-                            <BookOpen className="w-6 h-6 text-green-600" />
-                          }
-                        </div>
-                        <div>
-                          <CardTitle className="text-xl text-gray-800">{subject.subject}</CardTitle>
-                          <CardDescription className="text-gray-600">
-                            Last session: {formatDate(subject.lastSession)}
-                          </CardDescription>
-                        </div>
-                      </div>
-                      <Badge variant="secondary" className={`${getProgressBgColor(subject.progress)} ${getProgressColor(subject.progress)}`}>
-                        {subject.progress}%
+        ) : hasError ? (
+          <LearnerEmptyState
+            title="Progress is temporarily unavailable"
+            description="The dashboard could not load right now. Try refreshing after a moment and your charts should return."
+            icon={<AlertCircle className="h-6 w-6" />}
+          />
+        ) : !data ? (
+          <LearnerEmptyState
+            title="No progress yet"
+            description="Finish a learning session to start filling your stats board with charts, streaks, and achievements."
+            icon={<TrendingUp className="h-6 w-6" />}
+          />
+        ) : (
+          <MotionGroup className="space-y-6">
+          <MotionItem>
+            <Card className={progressPanelClass}>
+              <CardContent className="p-6">
+                <div className="grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
+                  <div className="overflow-hidden rounded-[1.8rem] bg-[linear-gradient(135deg,#345eff_0%,#6881ff_54%,#61d9ff_100%)] p-6 text-white shadow-[0_26px_70px_rgba(95,111,255,0.24)]">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant="secondary" className="rounded-full bg-white/15 text-white">
+                        Stats Board
+                      </Badge>
+                      <Badge variant="secondary" className="rounded-full bg-white/10 text-white/80">
+                        {subjects.length} tracked subject{subjects.length === 1 ? "" : "s"}
                       </Badge>
                     </div>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div>
-                      <div className="flex justify-between text-sm mb-2">
-                        <span>Progress</span>
-                        <span>{subject.progress}%</span>
+                    <h2 className="font-display mt-5 text-3xl font-semibold md:text-4xl">
+                      Read momentum at a glance instead of piecing it together from separate screens.
+                    </h2>
+                    <p className="mt-3 max-w-xl text-sm leading-6 text-white/82 md:text-base">
+                      Sessions, points, streaks, and subject performance now sit in one clearer progress layer so it’s easier to see what deserves the next push.
+                    </p>
+                    <div className="mt-6 grid gap-3 md:grid-cols-3">
+                      <div className="rounded-[1.35rem] border border-white/15 bg-white/10 p-4">
+                        <div className="text-[11px] uppercase tracking-[0.22em] text-white/65">Points earned</div>
+                        <div className="mt-2 text-3xl font-semibold">{totals.totalPoints}</div>
+                        <p className="mt-2 text-sm text-white/80">Every session rolls forward into rewards and unlocks.</p>
                       </div>
-                      <Progress value={subject.progress} className="h-3" />
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-4">
-                      <div className="text-center p-3 bg-gray-50 rounded-lg">
-                        <div className="text-lg font-bold text-blue-600">{subject.sessions}</div>
-                        <div className="text-xs text-gray-600">Sessions</div>
+                      <div className="rounded-[1.35rem] border border-white/15 bg-white/10 p-4">
+                        <div className="text-[11px] uppercase tracking-[0.22em] text-white/65">Time invested</div>
+                        <div className="mt-2 text-3xl font-semibold">{formatMinutes(totals.totalTime)}</div>
+                        <p className="mt-2 text-sm text-white/80">A simple view of how much practice is actually happening.</p>
                       </div>
-                      <div className="text-center p-3 bg-gray-50 rounded-lg">
-                        <div className={`text-lg font-bold ${getProgressColor(subject.accuracy)}`}>
-                          {subject.accuracy}%
-                        </div>
-                        <div className="text-xs text-gray-600">Accuracy</div>
-                      </div>
-                      <div className="text-center p-3 bg-gray-50 rounded-lg">
-                        <div className="text-lg font-bold text-purple-600">{subject.timeSpent}m</div>
-                        <div className="text-xs text-gray-600">Time</div>
+                      <div className="rounded-[1.35rem] border border-white/15 bg-white/10 p-4">
+                        <div className="text-[11px] uppercase tracking-[0.22em] text-white/65">Current streak</div>
+                        <div className="mt-2 text-3xl font-semibold">{data.child?.currentStreak ?? 0} days</div>
+                        <p className="mt-2 text-sm text-white/80">A fast read on rhythm, consistency, and follow-through.</p>
                       </div>
                     </div>
-
-                    <div className="pt-2">
-                      <div className="text-sm text-gray-600 mb-2">Strengths:</div>
-                      <div className="flex flex-wrap gap-2">
-                        {subject.subject === "Math" && (
-                          <>
-                            <Badge variant="outline" className="border-blue-200 text-blue-600">Multiplication</Badge>
-                            <Badge variant="outline" className="border-blue-200 text-blue-600">Problem Solving</Badge>
-                          </>
-                        )}
-                        {subject.subject === "English" && (
-                          <>
-                            <Badge variant="outline" className="border-pink-200 text-pink-600">Grammar</Badge>
-                            <Badge variant="outline" className="border-pink-200 text-pink-600">Vocabulary</Badge>
-                          </>
-                        )}
-                        {subject.subject === "Reading" && (
-                          <>
-                            <Badge variant="outline" className="border-green-200 text-green-600">Comprehension</Badge>
-                            <Badge variant="outline" className="border-green-200 text-green-600">Speed Reading</Badge>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </TabsContent>
-
-          {/* Achievements Tab */}
-          <TabsContent value="achievements" className="space-y-6">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Earned Achievements */}
-              <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg">
-                <CardHeader>
-                  <CardTitle className="text-xl text-gray-800 flex items-center gap-2">
-                    <Trophy className="w-5 h-5 text-yellow-500" />
-                    Earned Achievements
-                  </CardTitle>
-                  <CardDescription className="text-gray-600">
-                    {earnedAchievements.length} achievements unlocked
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    {earnedAchievements.map((achievement) => (
-                      <div key={achievement.id} className="flex items-center gap-3 p-3 bg-gradient-to-r from-yellow-50 to-orange-50 rounded-lg border border-yellow-200">
-                        <div className="text-2xl">{achievement.icon}</div>
-                        <div className="flex-1">
-                          <div className="font-semibold text-gray-800">{achievement.title}</div>
-                          <div className="text-sm text-gray-600">{achievement.description}</div>
-                          <div className="text-xs text-gray-500">Earned on {formatDate(achievement.date!)}</div>
-                        </div>
-                        <div className="w-8 h-8 bg-yellow-100 rounded-full flex items-center justify-center">
-                          <Award className="w-4 h-4 text-yellow-600" />
-                        </div>
-                      </div>
-                    ))}
                   </div>
-                </CardContent>
-              </Card>
 
-              {/* In Progress Achievements */}
-              <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg">
-                <CardHeader>
-                  <CardTitle className="text-xl text-gray-800 flex items-center gap-2">
-                    <TrendingUp className="w-5 h-5 text-blue-500" />
-                    In Progress
-                  </CardTitle>
-                  <CardDescription className="text-gray-600">
-                    {inProgressAchievements.length} achievements in progress
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    {inProgressAchievements.map((achievement) => (
-                      <div key={achievement.id} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                        <div className="text-2xl opacity-60">{achievement.icon}</div>
-                        <div className="flex-1">
-                          <div className="font-semibold text-gray-800">{achievement.title}</div>
-                          <div className="text-sm text-gray-600">{achievement.description}</div>
-                          <div className="mt-2">
-                            <div className="flex justify-between text-xs mb-1">
-                              <span>Progress</span>
-                              <span>{achievement.progress}%</span>
+                  <div className="grid gap-4">
+                    <div className="rounded-[1.6rem] border border-white/70 bg-white/70 p-5 dark:border-white/10 dark:bg-slate-900/45">
+                      <div className="text-[11px] uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">Strongest subject</div>
+                      <div className="mt-2 text-2xl font-semibold text-slate-950 dark:text-slate-50">
+                        {strongestSubject ?? "No data yet"}
+                      </div>
+                      <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+                        Based on current accuracy across the tracked subjects.
+                      </p>
+                    </div>
+                    <div className="rounded-[1.6rem] border border-white/70 bg-white/70 p-5 dark:border-white/10 dark:bg-slate-900/45">
+                      <div className="text-[11px] uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">Latest acceleration</div>
+                      <div className="mt-2 text-2xl font-semibold text-slate-950 dark:text-slate-50">
+                        {recent[0] ? `${recent[0].subject === "MATH" ? "Math" : "English"} • ${recent[0].topic}` : "No recent session"}
+                      </div>
+                      <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+                        Your latest session usually tells you where the next momentum bump can come from.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </MotionItem>
+
+          <Tabs defaultValue="overview" className="space-y-6">
+            <TabsList className="grid w-full grid-cols-2 rounded-[1.5rem] border border-white/80 bg-white/75 p-1 dark:border-white/10 dark:bg-slate-950/45 md:grid-cols-4">
+              <TabsTrigger value="overview">Overview</TabsTrigger>
+              <TabsTrigger value="subjects">Subjects</TabsTrigger>
+              <TabsTrigger value="achievements">Achievements</TabsTrigger>
+              <TabsTrigger value="history">History</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="overview" className="space-y-6">
+              <MotionGroup className="space-y-6">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+                  <MotionItem>
+                    <Card className={progressPanelClass}>
+                      <CardContent className="p-6">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-[11px] uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">Total Sessions</p>
+                            <p className="text-2xl font-bold text-indigo-600">{totals.totalSessions}</p>
+                          </div>
+                          <BookOpen className="h-8 w-8 text-indigo-500" />
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </MotionItem>
+
+                  <MotionItem>
+                    <Card className={progressPanelClass}>
+                      <CardContent className="p-6">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-[11px] uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">Time Spent</p>
+                            <p className="text-2xl font-bold text-purple-600">
+                              {formatMinutes(totals.totalTime)}
+                            </p>
+                          </div>
+                          <Clock className="h-8 w-8 text-purple-500" />
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </MotionItem>
+
+                  <MotionItem>
+                    <Card className={progressPanelClass}>
+                      <CardContent className="p-6">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-[11px] uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">Average Accuracy</p>
+                            <p className="text-2xl font-bold text-emerald-600">{totals.averageAccuracy}%</p>
+                          </div>
+                          <Target className="h-8 w-8 text-emerald-500" />
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </MotionItem>
+
+                  <MotionItem>
+                    <Card className={progressPanelClass}>
+                      <CardContent className="p-6">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-[11px] uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">Current Streak</p>
+                            <p className="text-2xl font-bold text-orange-600">{data.child?.currentStreak ?? 0} days</p>
+                          </div>
+                          <Trophy className="h-8 w-8 text-orange-500" />
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </MotionItem>
+                </div>
+
+                <div className="grid gap-6 lg:grid-cols-[1.25fr_0.75fr]">
+                  <MotionItem>
+                    <Card className={progressPanelClass}>
+                      <CardHeader>
+                        <CardTitle className="font-display text-xl text-slate-950 dark:text-slate-50">Weekly Momentum</CardTitle>
+                        <CardDescription className="text-slate-600 dark:text-slate-300">
+                          A stacked view of your math and English time over the last seven days.
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        {weeklyChartData.length === 0 ? (
+                          <LearnerEmptyState
+                            title="No weekly sessions yet"
+                            description="Finish a lesson and your weekly chart will start to light up here."
+                          />
+                        ) : (
+                          <ChartContainer
+                            className="h-[280px] w-full"
+                            config={weeklyChartConfig}
+                          >
+                            <BarChart accessibilityLayer data={weeklyChartData}>
+                              <CartesianGrid vertical={false} />
+                              <XAxis dataKey="day" tickLine={false} axisLine={false} />
+                              <YAxis tickLine={false} axisLine={false} />
+                              <ChartTooltip content={<ChartTooltipContent indicator="dot" />} />
+                              <ChartLegend content={<ChartLegendContent />} />
+                              <Bar dataKey="math" fill="var(--color-math)" radius={[10, 10, 0, 0]} />
+                              <Bar dataKey="english" fill="var(--color-english)" radius={[10, 10, 0, 0]} />
+                            </BarChart>
+                          </ChartContainer>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </MotionItem>
+
+                  <MotionItem>
+                    <Card className={progressPanelClass}>
+                      <CardHeader>
+                        <CardTitle className="font-display text-xl text-slate-950 dark:text-slate-50">Current Run</CardTitle>
+                        <CardDescription className="text-slate-600 dark:text-slate-300">
+                          A quick pulse check on what your recent sessions are building.
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        {recent.length === 0 ? (
+                          <LearnerEmptyState
+                            title="No highlights yet"
+                            description="Recent sessions and streak moments will appear here as soon as you start playing."
+                            icon={<Award className="h-6 w-6" />}
+                          />
+                        ) : (
+                          <div className="space-y-4">
+                            <div className="grid grid-cols-2 gap-3">
+                              <div className="rounded-[1.25rem] bg-gradient-to-br from-yellow-50 to-orange-50 p-4 dark:from-yellow-500/10 dark:to-orange-500/10">
+                                <div className="text-[11px] uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">Recent Points</div>
+                                <div className="mt-2 text-2xl font-bold text-amber-600">
+                                  {recent.slice(0, 3).reduce((sum, session) => sum + session.pointsEarned, 0)}
+                                </div>
+                                <div className="mt-1 text-xs text-slate-600 dark:text-slate-300">From your latest three sessions</div>
+                              </div>
+                              <div className="rounded-[1.25rem] bg-gradient-to-br from-sky-50 to-indigo-50 p-4 dark:from-sky-500/10 dark:to-indigo-500/10">
+                                <div className="text-[11px] uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">Best Accuracy</div>
+                                <div className="mt-2 text-2xl font-bold text-sky-600">
+                                  {Math.max(
+                                    ...recent.slice(0, 3).map((session) =>
+                                      Math.round((session.questionsCorrect / Math.max(1, session.questionsAsked)) * 100),
+                                    ),
+                                  )}
+                                  %
+                                </div>
+                                <div className="mt-1 text-xs text-slate-600 dark:text-slate-300">Top finish across recent sessions</div>
+                              </div>
                             </div>
-                            <Progress value={achievement.progress} className="h-2" />
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
 
-            {/* Achievement Stats */}
-            <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg">
-              <CardHeader>
-                <CardTitle className="text-xl text-gray-800">Achievement Statistics</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div className="text-center p-4 bg-yellow-50 rounded-lg">
-                    <div className="text-2xl font-bold text-yellow-600">{earnedAchievements.length}</div>
-                    <div className="text-sm text-gray-600">Earned</div>
-                  </div>
-                  <div className="text-center p-4 bg-blue-50 rounded-lg">
-                    <div className="text-2xl font-bold text-blue-600">{inProgressAchievements.length}</div>
-                    <div className="text-sm text-gray-600">In Progress</div>
-                  </div>
-                  <div className="text-center p-4 bg-purple-50 rounded-lg">
-                    <div className="text-2xl font-bold text-purple-600">{achievements.length}</div>
-                    <div className="text-sm text-gray-600">Total</div>
-                  </div>
-                  <div className="text-center p-4 bg-green-50 rounded-lg">
-                    <div className="text-2xl font-bold text-green-600">
-                      {Math.round((earnedAchievements.length / achievements.length) * 100)}%
-                    </div>
-                    <div className="text-sm text-gray-600">Completion</div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* History Tab */}
-          <TabsContent value="history" className="space-y-6">
-            <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg">
-              <CardHeader>
-                <CardTitle className="text-xl text-gray-800">Learning History</CardTitle>
-                <CardDescription className="text-gray-600">
-                  Your complete learning session history
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  {/* Mock history data */}
-                  {[
-                    { date: "2024-01-15", subject: "Math", topic: "Multiplication", duration: 15, accuracy: 80, points: 85 },
-                    { date: "2024-01-14", subject: "English", topic: "Grammar", duration: 20, accuracy: 75, points: 90 },
-                    { date: "2024-01-13", subject: "Math", topic: "Division", duration: 12, accuracy: 88, points: 75 },
-                    { date: "2024-01-12", subject: "English", topic: "Vocabulary", duration: 18, accuracy: 90, points: 105 },
-                    { date: "2024-01-11", subject: "Math", topic: "Multiplication", duration: 15, accuracy: 85, points: 80 },
-                    { date: "2024-01-10", subject: "Reading", topic: "Comprehension", duration: 25, accuracy: 92, points: 120 }
-                  ].map((session, index) => (
-                    <div key={index} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-                      <div className="flex items-center gap-4">
-                        <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${
-                          session.subject === "Math" ? "bg-blue-100" : 
-                          session.subject === "English" ? "bg-pink-100" : "bg-green-100"
-                        }`}>
-                          {session.subject === "Math" ? 
-                            <Calculator className="w-6 h-6 text-blue-600" /> : 
-                            session.subject === "English" ? 
-                            <BookOpen className="w-6 h-6 text-pink-600" /> :
-                            <BookOpen className="w-6 h-6 text-green-600" />
-                          }
-                        </div>
-                        <div>
-                          <div className="font-semibold text-gray-800">{session.subject} - {session.topic}</div>
-                          <div className="text-sm text-gray-600">
-                            {session.duration} minutes • {formatDate(session.date)}
+                            <div className="space-y-3">
+                              {recent.slice(0, 2).map((session) => (
+                                <div key={session.id} className="flex items-center gap-3 rounded-[1.5rem] bg-white/70 p-3 ring-1 ring-white/80 dark:bg-slate-900/45 dark:ring-white/10">
+                                  <div className="text-2xl">🏆</div>
+                                  <div className="flex-1">
+                                    <div className="font-semibold text-slate-950 dark:text-slate-50">
+                                      {session.subject === "MATH" ? "Great Math Session" : "Great English Session"}
+                                    </div>
+                                    <div className="text-sm text-slate-600 dark:text-slate-300">
+                                      {session.pointsEarned} points • {session.questionsCorrect}/{session.questionsAsked} correct
+                                    </div>
+                                    <div className="text-xs text-slate-500 dark:text-slate-400">
+                                      {formatDate(session.completedAt)}
+                                    </div>
+                                  </div>
+                                  <Award className="h-5 w-5 text-yellow-500" />
+                                </div>
+                              ))}
+                            </div>
                           </div>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-sm font-medium text-gray-600">Accuracy:</span>
-                          <span className={`font-semibold ${
-                            session.accuracy >= 80 ? "text-green-600" : 
-                            session.accuracy >= 60 ? "text-yellow-600" : "text-red-600"
-                          }`}>
-                            {session.accuracy}%
-                          </span>
-                        </div>
-                        <div className="font-semibold text-purple-600">+{session.points} points</div>
-                      </div>
-                    </div>
-                  ))}
+                        )}
+                      </CardContent>
+                    </Card>
+                  </MotionItem>
                 </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
+              </MotionGroup>
+            </TabsContent>
+
+            <TabsContent value="subjects" className="space-y-6">
+              <MotionGroup className="space-y-6">
+                <MotionItem>
+                  <Card className={progressPanelClass}>
+                    <CardHeader>
+                      <CardTitle className="font-display text-xl text-slate-950 dark:text-slate-50">Subject Comparison</CardTitle>
+                      <CardDescription className="text-slate-600 dark:text-slate-300">
+                        Compare overall progress and accuracy side by side.
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      {subjectChartData.length === 0 ? (
+                        <LearnerEmptyState
+                          title="No subject data yet"
+                          description="Once you complete lessons, each subject will gain its own performance profile."
+                        />
+                      ) : (
+                        <ChartContainer className="h-[280px] w-full" config={subjectChartConfig}>
+                          <AreaChart accessibilityLayer data={subjectChartData}>
+                            <CartesianGrid vertical={false} />
+                            <XAxis dataKey="subject" tickLine={false} axisLine={false} />
+                            <YAxis tickLine={false} axisLine={false} domain={[0, 100]} />
+                            <ChartTooltip content={<ChartTooltipContent indicator="line" />} />
+                            <ChartLegend content={<ChartLegendContent />} />
+                            <Area type="monotone" dataKey="progress" fill="var(--color-progress)" fillOpacity={0.18} stroke="var(--color-progress)" strokeWidth={3} />
+                            <Area type="monotone" dataKey="accuracy" fill="var(--color-accuracy)" fillOpacity={0.14} stroke="var(--color-accuracy)" strokeWidth={3} />
+                          </AreaChart>
+                        </ChartContainer>
+                      )}
+                    </CardContent>
+                  </Card>
+                </MotionItem>
+
+                <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                  {subjects.length === 0 ? (
+                    <div className="lg:col-span-2">
+                      <LearnerEmptyState
+                        title="No subject cards yet"
+                        description="Subject breakdowns unlock after your first logged sessions."
+                      />
+                    </div>
+                  ) : (
+                    subjects.map((subject) => (
+                      <MotionItem key={subject.subject}>
+                        <Card className={progressPanelClass}>
+                          <CardHeader>
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-3">
+                                <div className={`flex h-12 w-12 items-center justify-center rounded-[1rem] ${subject.subject === "Math" ? "bg-blue-100 text-blue-600 dark:bg-blue-500/10 dark:text-blue-300" : "bg-pink-100 text-pink-600 dark:bg-pink-500/10 dark:text-pink-300"}`}>
+                                  {subject.subject === "Math" ? <Calculator className="h-6 w-6" /> : <BookOpen className="h-6 w-6" />}
+                                </div>
+                                <div>
+                                  <CardTitle className="font-display text-xl text-slate-950 dark:text-slate-50">{subject.subject}</CardTitle>
+                                  {subject.lastSession ? (
+                                    <CardDescription className="text-slate-600 dark:text-slate-300">
+                                      Last session: {formatDate(subject.lastSession)}
+                                    </CardDescription>
+                                  ) : null}
+                                </div>
+                              </div>
+                              <Badge variant="secondary" className="rounded-full bg-white/80 text-slate-700 dark:bg-white/10 dark:text-slate-100">
+                                {subject.progress}%
+                              </Badge>
+                            </div>
+                          </CardHeader>
+                          <CardContent className="space-y-4">
+                            <div>
+                              <div className="mb-2 flex justify-between text-sm">
+                                <span>Progress</span>
+                                <span>{subject.progress}%</span>
+                              </div>
+                              <Progress value={subject.progress} className="h-3" />
+                            </div>
+                            <div className="grid grid-cols-3 gap-4">
+                              <div className="rounded-[1rem] bg-white/70 p-3 text-center dark:bg-slate-900/45">
+                                <div className="text-lg font-bold text-blue-600">{subject.sessions}</div>
+                                <div className="text-xs text-slate-600 dark:text-slate-300">Sessions</div>
+                              </div>
+                              <div className="rounded-[1rem] bg-white/70 p-3 text-center dark:bg-slate-900/45">
+                                <div className="text-lg font-bold text-emerald-600">{subject.accuracy}%</div>
+                                <div className="text-xs text-slate-600 dark:text-slate-300">Accuracy</div>
+                              </div>
+                              <div className="rounded-[1rem] bg-white/70 p-3 text-center dark:bg-slate-900/45">
+                                <div className="text-lg font-bold text-purple-600">{subject.timeSpent}m</div>
+                                <div className="text-xs text-slate-600 dark:text-slate-300">Time</div>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      </MotionItem>
+                    ))
+                  )}
+                </div>
+              </MotionGroup>
+            </TabsContent>
+
+            <TabsContent value="achievements" className="space-y-6">
+              <MotionGroup>
+                <MotionItem>
+                  <Card className={progressPanelClass}>
+                    <CardHeader>
+                      <CardTitle className="font-display flex items-center gap-2 text-xl text-slate-950 dark:text-slate-50">
+                        <TrendingUp className="h-5 w-5 text-blue-500" />
+                        In Progress
+                      </CardTitle>
+                      <CardDescription className="text-slate-600 dark:text-slate-300">
+                        Your latest sessions show what’s improving fastest right now.
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      {recent.length === 0 ? (
+                        <LearnerEmptyState
+                          title="No streak story yet"
+                          description="Your current milestones will appear here once you have a few sessions on the board."
+                        />
+                      ) : (
+                        <div className="space-y-3">
+                          {recent.slice(0, 4).map((session) => (
+                            <div key={session.id} className="flex items-center gap-3 rounded-[1.25rem] border border-white/80 bg-white/70 p-3 dark:border-white/10 dark:bg-slate-900/45">
+                              <div className="text-2xl opacity-60">⭐</div>
+                              <div className="flex-1">
+                                <div className="font-semibold text-slate-950 dark:text-slate-50">
+                                  {session.subject === "MATH" ? "Math" : "English"} • {session.topic}
+                                </div>
+                                <div className="text-sm text-slate-600 dark:text-slate-300">
+                                  {session.duration}m • {session.questionsCorrect}/{session.questionsAsked} correct
+                                </div>
+                                <div className="text-xs text-slate-500 dark:text-slate-400">
+                                  {formatDate(session.completedAt)}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </MotionItem>
+              </MotionGroup>
+            </TabsContent>
+
+            <TabsContent value="history" className="space-y-6">
+              <MotionGroup>
+                <MotionItem>
+                  <Card className={progressPanelClass}>
+                    <CardHeader>
+                      <CardTitle className="font-display text-xl text-slate-950 dark:text-slate-50">Learning History</CardTitle>
+                      <CardDescription className="text-slate-600 dark:text-slate-300">
+                        Your complete session history, with performance snapshots for each run.
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      {recent.length === 0 ? (
+                        <LearnerEmptyState
+                          title="No history yet"
+                          description="Once you finish a session, your timeline will appear here with accuracy and points."
+                        />
+                      ) : (
+                        <div className="space-y-3">
+                          {recent.map((session) => {
+                            const accuracy = Math.round((session.questionsCorrect / Math.max(1, session.questionsAsked)) * 100);
+
+                            return (
+                              <div key={session.id} className="flex items-center justify-between rounded-[1.5rem] border border-white/80 bg-white/70 p-4 dark:border-white/10 dark:bg-slate-900/45">
+                                <div className="flex items-center gap-4">
+                                  <div className={`flex h-12 w-12 items-center justify-center rounded-[1rem] ${session.subject === "MATH" ? "bg-blue-100 text-blue-600 dark:bg-blue-500/10 dark:text-blue-300" : "bg-pink-100 text-pink-600 dark:bg-pink-500/10 dark:text-pink-300"}`}>
+                                    {session.subject === "MATH" ? <Calculator className="h-6 w-6" /> : <BookOpen className="h-6 w-6" />}
+                                  </div>
+                                  <div>
+                                    <div className="font-semibold text-slate-950 dark:text-slate-50">
+                                      {session.subject === "MATH" ? "Math" : "English"} - {session.topic}
+                                    </div>
+                                    <div className="text-sm text-slate-600 dark:text-slate-300">
+                                      {session.duration} minutes • {formatDate(session.completedAt)}
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="text-right">
+                                  <div className="mb-1 flex items-center gap-2">
+                                    <span className="text-sm font-medium text-slate-600 dark:text-slate-300">Accuracy:</span>
+                                    <span className="font-semibold text-emerald-600">{accuracy}%</span>
+                                  </div>
+                                  <div className="font-semibold text-purple-600">+{session.pointsEarned} points</div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </MotionItem>
+              </MotionGroup>
+            </TabsContent>
+          </Tabs>
+          </MotionGroup>
+        )}
       </div>
-    </div>
+    </LearnerWorkspaceShell>
   );
 }

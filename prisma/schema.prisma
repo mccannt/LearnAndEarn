@@ -12,26 +12,62 @@ datasource db {
 
 // Child user (the learner)
 model Child {
-  id              String   @id @default(cuid())
-  name            String
-  age             Int
-  avatarUrl       String?
-  totalPoints     Int      @default(0)
-  currentStreak   Int      @default(0)
-  longestStreak   Int      @default(0)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id            String    @id @default(cuid())
+  name          String
+  age           Int
+  gradeLevel    Int?
+  avatarUrl     String?   @default("/default-avatar.png")
+  totalPoints   Int       @default(0)
+  currentStreak Int       @default(0)
+  longestStreak Int       @default(0)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  parentId      String
+  parent        Parent    @relation(fields: [parentId], references: [id], onDelete: Cascade)
+  
+  // Equipped Avatar Items
+  equippedHairStyle   String? @default("hair1")
+  equippedShirt       String? @default("shirt1")
+  equippedPants       String? @default("pants1")
+  equippedShoes       String? @default("shoes1")
+  equippedAccessory   String? @default("none")
+  equippedBackground  String? @default("bg1")
 
-  // Relationships
-  parentId        String
-  parent          Parent   @relation(fields: [parentId], references: [id], onDelete: Cascade)
-  
-  sessions        LearningSession[]
-  progress        Progress[]
-  rewards         Reward[]
-  avatarItems     AvatarItem[]
-  
+  learningSessions LearningSession[]
+  progress         Progress[]
+  rewards          Reward[]
+  unlockedItems    UnlockedItem[]
+
   @@map("children")
+}
+
+model UnlockedItem {
+  id         String   @id @default(cuid())
+  childId    String
+  child      Child    @relation(fields: [childId], references: [id])
+  itemId     String
+  item       AvatarItemCatalog @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  unlockedAt DateTime @default(now())
+
+  @@unique([childId, itemId]) // A child can only unlock an item once
+  @@map("unlocked_items")
+}
+
+model AvatarItemCatalog {
+  id           String            @id
+  name         String
+  type         AvatarItemType
+  color        String
+  cost         Int
+  rarity       AvatarItemRarity
+  isDefault    Boolean           @default(false)
+  isActive     Boolean           @default(true)
+  sortOrder    Int               @default(0)
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  unlockedItems UnlockedItem[]
+
+  @@map("avatar_item_catalog")
 }
 
 // Parent user
@@ -97,8 +133,11 @@ model Progress {
 model Reward {
   id            String   @id @default(cuid())
   childId       String
+  catalogItemId String?
   type          RewardType
-  amount        Int      // points or minutes
+  amount        Int      // total points spent
+  quantity      Int      @default(1)
+  rewardValue   Int?
   description   String
   earnedAt      DateTime @default(now())
   redeemedAt    DateTime?
@@ -106,8 +145,27 @@ model Reward {
   
   // Relationships
   child         Child    @relation(fields: [childId], references: [id], onDelete: Cascade)
+  catalogItem   RewardCatalog? @relation(fields: [catalogItemId], references: [id], onDelete: SetNull)
   
   @@map("rewards")
+}
+
+model RewardCatalog {
+  id             String      @id
+  type           RewardType
+  title          String
+  description    String
+  cost           Int
+  rewardValue    Int
+  isActive       Boolean     @default(true)
+  stockTotal     Int?
+  stockRemaining Int?
+  sortOrder      Int         @default(0)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  rewards        Reward[]
+
+  @@map("reward_catalog")
 }
 
 // Reward type enum
@@ -117,23 +175,6 @@ enum RewardType {
   ROBLOX_CREDITS
 }
 
-// Avatar customization items
-model AvatarItem {
-  id          String   @id @default(cuid())
-  childId     String
-  itemType    AvatarItemType
-  itemName    String
-  itemColor   String?
-  isEquipped  Boolean  @default(false)
-  unlockedAt  DateTime @default(now())
-  
-  // Relationships
-  child       Child    @relation(fields: [childId], references: [id], onDelete: Cascade)
-  
-  @@map("avatar_items")
-}
-
-// Avatar item type enum
 enum AvatarItemType {
   HAIR_STYLE
   SHIRT
@@ -141,6 +182,13 @@ enum AvatarItemType {
   SHOES
   ACCESSORY
   BACKGROUND
+}
+
+enum AvatarItemRarity {
+  COMMON
+  RARE
+  EPIC
+  LEGENDARY
 }
 
 // Parent settings and controls
@@ -163,12 +211,19 @@ model Settings {
 
 // Math questions database
 model MathQuestion {
-  id          String   @id @default(cuid())
-  question    String
-  answer      Int
-  operation   MathOperation
-  difficulty  Int      @default(1) // 1-5
-  topic       String   // e.g., "multiplication", "division"
+  id                 String   @id @default(cuid())
+  seedKey            String?  @unique
+  question           String
+  answer             Float
+  remainder          Int?
+  operation          MathOperation
+  difficulty         Int      @default(1) // 1-5
+  topic              String   // e.g., "multiplication", "division"
+  gradeMin           Int?
+  gradeMax           Int?
+  curriculumCode     String?
+  curriculumOutcome  String?
+  curriculumSourceUrl String?
   
   @@map("math_questions")
 }
@@ -183,13 +238,19 @@ enum MathOperation {
 
 // English questions database
 model EnglishQuestion {
-  id          String   @id @default(cuid())
-  question    String
-  options     String   // JSON array of options
-  correctAnswer String
-  questionType EnglishQuestionType
-  difficulty  Int      @default(1) // 1-5
-  topic       String   // e.g., "grammar", "reading_comprehension"
+  id                 String   @id @default(cuid())
+  seedKey            String?  @unique
+  question           String
+  options            String   // JSON array of options
+  correctAnswer      String
+  questionType       EnglishQuestionType
+  difficulty         Int      @default(1) // 1-5
+  topic              String   // e.g., "grammar", "reading_comprehension"
+  gradeMin           Int?
+  gradeMax           Int?
+  curriculumCode     String?
+  curriculumOutcome  String?
+  curriculumSourceUrl String?
   
   @@map("english_questions")
 }
